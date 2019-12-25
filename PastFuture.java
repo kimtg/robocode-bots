@@ -21,6 +21,7 @@
 // version 2.1.8: setFire(2.0), LAST_BEARING_OFFSET_INDEXS, waiting gun turn, gun stat decaying
 // version 2.1.9: no flattening
 // version 2.2.0: prevent wall hit
+// version 2.2.1: fixed bullet catcher detection bug
 
 package stelo;
 
@@ -320,7 +321,7 @@ public class PastFuture extends TeamRobot {
 		// double bulletPower = getOthers() > 7 ? 3.0 : 1.999; // 1.9
 		// double bulletPower = limit(1.9, 1.9 + (3.0 - 1.9) / 10.0 * getOthers(), 3.0);
 		//bulletPower = Math.min(bulletPower, getEnergy() / 5.0);
-		if (getOthers() > 1 && enemyBulletPower < 0.11 && numBulletHitBullet / enemyFire > 0.2) { // for bullet catcher
+		if (getOthers() == 1 && enemyBulletPower < 0.11 && numBulletHitBullet / enemyFire > 0.2) { // for bullet catcher
 			bulletPower = 0.1;
 			out.println("Bullet catcher detected.");
 		}
