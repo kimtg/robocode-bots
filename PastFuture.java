@@ -22,7 +22,8 @@
 // version 2.1.9: no flattening
 // version 2.2.0: prevent wall hit
 // version 2.2.1: fixed bullet catcher detection bug
-// version 2.3.0: per-robot segmentation
+// version 2.3.0: per-robot segmentation in gun
+// version 2.3.1: per-robot segmentation in movement
 
 package stelo;
 
@@ -42,15 +43,15 @@ public class PastFuture extends TeamRobot {
 	private static final int LAST_BEARING_OFFSET_INDEXS = 7; // 9
 	private static final int ROBOT_INDEXES = 20;
 //    public static double _surfStats[] = new double[BINS]; // we'll use 47 bins
-	private static double _surfStats1[][] = new double[DISTANCE_INDEXES][BINS];
-	private static double _surfStats2[][] = new double[VELOCITY_INDEXES][BINS];
+	private static double _surfStats1[][][] = new double[ROBOT_INDEXES][DISTANCE_INDEXES][BINS];
+	private static double _surfStats2[][][] = new double[ROBOT_INDEXES][VELOCITY_INDEXES][BINS];
 	
-	private static double _surfStats3[][][] = new double[VELOCITY_INDEXES][DISTANCE_INDEXES][BINS];
-	private static double _surfStats4[][][] = new double[VELOCITY_INDEXES][VELOCITY_INDEXES][BINS];
+	private static double _surfStats3[][][][] = new double[ROBOT_INDEXES][VELOCITY_INDEXES][DISTANCE_INDEXES][BINS];
+	private static double _surfStats4[][][][] = new double[ROBOT_INDEXES][VELOCITY_INDEXES][VELOCITY_INDEXES][BINS];
 	
-    private static double _surfStats5[][][][] = new double[VELOCITY_INDEXES][VELOCITY_INDEXES][DISTANCE_INDEXES][BINS];
-	private static double _surfStats6[][][][][] = new double[VELOCITY_INDEXES][VELOCITY_INDEXES][DISTANCE_INDEXES][WALL_INDEXES][BINS];
-    private static double _surfStats7[][][][][][] = new double[VELOCITY_INDEXES][VELOCITY_INDEXES][DISTANCE_INDEXES][WALL_INDEXES][LAST_BEARING_OFFSET_INDEXS][BINS];
+    private static double _surfStats5[][][][][] = new double[ROBOT_INDEXES][VELOCITY_INDEXES][VELOCITY_INDEXES][DISTANCE_INDEXES][BINS];
+	private static double _surfStats6[][][][][][] = new double[ROBOT_INDEXES][VELOCITY_INDEXES][VELOCITY_INDEXES][DISTANCE_INDEXES][WALL_INDEXES][BINS];
+    private static double _surfStats7[][][][][][][] = new double[ROBOT_INDEXES][VELOCITY_INDEXES][VELOCITY_INDEXES][DISTANCE_INDEXES][WALL_INDEXES][LAST_BEARING_OFFSET_INDEXS][BINS];
 
     public static Point2D.Double _myLocation;     // our bot's location
     public static Point2D.Double _enemyLocation;  // enemy bot's location
@@ -286,7 +287,9 @@ public class PastFuture extends TeamRobot {
 	
         _surfDirections.add(0,
             new Integer((lateralVelocity >= 0) ? 1 : -1));
-        _surfAbsBearings.add(0, new Double(absBearing + Math.PI));	
+        _surfAbsBearings.add(0, new Double(absBearing + Math.PI));
+		
+		int rn = robotNameToNum(e.getName());
 	
         // check energyDrop
         double energyDrop = lastEnemyEnergy - e.getEnergy();
@@ -299,7 +302,7 @@ public class PastFuture extends TeamRobot {
 			EnemyWave surfWave = getClosestSurfableWave();
 			if (surfWave != null)
         		myLastExactBearingOffsetIndex = (int) (Math.abs(getFactorIndex(surfWave, _myLocation) - MIDDLE_BIN) / MIDDLE_BIN * (LAST_BEARING_OFFSET_INDEXS - 1));
-            EnemyWave ew = new EnemyWave(this.getVelocity(), lastMyVelocity, enemyDistance, enemyBulletPower, myLastExactBearingOffsetIndex);
+            EnemyWave ew = new EnemyWave(rn, this.getVelocity(), lastMyVelocity, enemyDistance, enemyBulletPower, myLastExactBearingOffsetIndex);
             ew.fireTime = getTime() - 1;
             ew.distanceTraveled = bulletVelocity(enemyBulletPower);
             ew.direction = ((Integer)_surfDirections.get(2)).intValue();
@@ -394,8 +397,7 @@ public class PastFuture extends TeamRobot {
 	
 		setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
 				
-		Integer ft = new Integer(velocities.size() - 1);
-		int rn = robotNameToNum(e.getName());
+		Integer ft = new Integer(velocities.size() - 1);		
 			
 		fireTimes5[rn][vIndex1][accelIndex][distanceIndex][wallIndex][lastBearingOffsetIndex].add(ft);
 		fireTimes4[rn][vIndex1][accelIndex][distanceIndex][wallIndex].add(ft);
@@ -1197,7 +1199,7 @@ public class PastFuture extends TeamRobot {
 		private static double MAX_DISTANCE = Math.hypot(1000, 1000);
 
 //        public EnemyWave(double velocity, double lastVelocity, double distance) {
-        public EnemyWave(double velocity, double lastVelocity, double distance, double enemyBulletPower, int myLastExactBearingOffsetIndex) {
+        public EnemyWave(int robotIndex, double velocity, double lastVelocity, double distance, double enemyBulletPower, int myLastExactBearingOffsetIndex) {
             bulletVelocity = bulletVelocity(enemyBulletPower);
 			int velocityIndex = (int) Math.abs(velocity / 2);
 			int lastVelocityIndex = (int) Math.abs(lastVelocity / 2);
@@ -1206,13 +1208,13 @@ public class PastFuture extends TeamRobot {
 			// int wallIndex = wallDistance(_myLocation) < 70.0 ? 0 : 1;
 			int powerIndex = (int) enemyBulletPower;
 			
-			buffer[7] = _surfStats7[velocityIndex][lastVelocityIndex][distanceIndex][wallIndex][myLastExactBearingOffsetIndex];
-			buffer[6] = _surfStats6[velocityIndex][lastVelocityIndex][distanceIndex][wallIndex];
-			buffer[5] = _surfStats5[velocityIndex][lastVelocityIndex][distanceIndex];
-			buffer[4] = _surfStats4[velocityIndex][lastVelocityIndex];
-			buffer[3] = _surfStats3[velocityIndex][distanceIndex];
-			buffer[2] = _surfStats2[velocityIndex];
-			buffer[1] = _surfStats1[distanceIndex];
+			buffer[7] = _surfStats7[robotIndex][velocityIndex][lastVelocityIndex][distanceIndex][wallIndex][myLastExactBearingOffsetIndex];
+			buffer[6] = _surfStats6[robotIndex][velocityIndex][lastVelocityIndex][distanceIndex][wallIndex];
+			buffer[5] = _surfStats5[robotIndex][velocityIndex][lastVelocityIndex][distanceIndex];
+			buffer[4] = _surfStats4[robotIndex][velocityIndex][lastVelocityIndex];
+			buffer[3] = _surfStats3[robotIndex][velocityIndex][distanceIndex];
+			buffer[2] = _surfStats2[robotIndex][velocityIndex];
+			buffer[1] = _surfStats1[robotIndex][distanceIndex];
 			buffer[0] = fastBuffer;
 		}        
     }
