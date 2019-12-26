@@ -22,6 +22,7 @@
 // version 2.1.9: no flattening
 // version 2.2.0: prevent wall hit
 // version 2.2.1: fixed bullet catcher detection bug
+// version 2.3.0: per-robot segmentation
 
 package stelo;
 
@@ -39,6 +40,7 @@ public class PastFuture extends TeamRobot {
 	private static final int VELOCITY_INDEXES = 5;
 	private static final int WALL_INDEXES = 2;
 	private static final int LAST_BEARING_OFFSET_INDEXS = 7; // 9
+	private static final int ROBOT_INDEXES = 20;
 //    public static double _surfStats[] = new double[BINS]; // we'll use 47 bins
 	private static double _surfStats1[][] = new double[DISTANCE_INDEXES][BINS];
 	private static double _surfStats2[][] = new double[VELOCITY_INDEXES][BINS];
@@ -86,12 +88,12 @@ public class PastFuture extends TeamRobot {
 	private static final int ACCEL_INDEXES = 5;
 
 	// different segmentations
-	private static Vector[][][][][] fireTimes5 = new Vector[SLT_VELOCITY_INDEXES][ACCEL_INDEXES][DISTANCE_INDEXES][WALL_INDEXES][LAST_BEARING_OFFSET_INDEXS];
-	private static Vector[][][][] fireTimes4 = new Vector[SLT_VELOCITY_INDEXES][ACCEL_INDEXES][DISTANCE_INDEXES][WALL_INDEXES];
-	private static Vector[][][] fireTimes3 = new Vector[SLT_VELOCITY_INDEXES][ACCEL_INDEXES][DISTANCE_INDEXES];
-	private static Vector[][] fireTimes2 = new Vector[SLT_VELOCITY_INDEXES][ACCEL_INDEXES];
-	private static Vector[] fireTimes1 = new Vector[SLT_VELOCITY_INDEXES];
-	private static Vector fireTimes0 = new Vector();
+	private static Vector[][][][][][] fireTimes5 = new Vector[ROBOT_INDEXES][SLT_VELOCITY_INDEXES][ACCEL_INDEXES][DISTANCE_INDEXES][WALL_INDEXES][LAST_BEARING_OFFSET_INDEXS];
+	private static Vector[][][][][] fireTimes4 = new Vector[ROBOT_INDEXES][SLT_VELOCITY_INDEXES][ACCEL_INDEXES][DISTANCE_INDEXES][WALL_INDEXES];
+	private static Vector[][][][] fireTimes3 = new Vector[ROBOT_INDEXES][SLT_VELOCITY_INDEXES][ACCEL_INDEXES][DISTANCE_INDEXES];
+	private static Vector[][][] fireTimes2 = new Vector[ROBOT_INDEXES][SLT_VELOCITY_INDEXES][ACCEL_INDEXES];
+	private static Vector[][] fireTimes1 = new Vector[ROBOT_INDEXES][SLT_VELOCITY_INDEXES];
+	private static Vector[] fireTimes0 = new Vector[ROBOT_INDEXES];
 	private static Vector realFireTimes = new Vector();
 			
 	private static double MAX_ESCAPE_ANGLE = 0.9;
@@ -112,6 +114,18 @@ public class PastFuture extends TeamRobot {
 	private static Point2D.Double center = new Point2D.Double(400, 300);
 	private static String lastTargetName = "";
 //	private static long fireTime = 0;
+
+	private static HashMap<String, Integer> robotNum = new HashMap<>();
+	private static int robotNameToNum(String name) {
+		Integer num = robotNum.get(name);
+		if (num != null) {
+			return num;
+		} else {
+			num = robotNum.size();
+			robotNum.put(name, num);
+			return num;
+		}
+	}
 
 	static class EnemyInfo {
 		public ScannedRobotEvent sre;
@@ -145,19 +159,21 @@ public class PastFuture extends TeamRobot {
 		setAdjustRadarForRobotTurn(true);
 
 		if (getRoundNum() == 0) {
-			for (int i = 0; i < SLT_VELOCITY_INDEXES; i++) {
-				fireTimes1[i] = new Vector();
-				for (int j = 0; j < ACCEL_INDEXES; j++) {
-					fireTimes2[i][j] = new Vector();
-					for (int k = 0; k < DISTANCE_INDEXES; k++) {
-						fireTimes3[i][j][k] = new Vector();
-						for (int l = 0; l < WALL_INDEXES; l++) {
-							fireTimes4[i][j][k][l] = new Vector();
-							for (int m = 0; m < LAST_BEARING_OFFSET_INDEXS; m++) {
-								fireTimes5[i][j][k][l][m] = new Vector();
-
-							}												
-						}						
+			for (int h = 0; h < ROBOT_INDEXES; h++) {
+				fireTimes0[h] = new Vector();
+				for (int i = 0; i < SLT_VELOCITY_INDEXES; i++) {
+					fireTimes1[h][i] = new Vector();
+					for (int j = 0; j < ACCEL_INDEXES; j++) {
+						fireTimes2[h][i][j] = new Vector();
+						for (int k = 0; k < DISTANCE_INDEXES; k++) {
+							fireTimes3[h][i][j][k] = new Vector();
+							for (int l = 0; l < WALL_INDEXES; l++) {
+								fireTimes4[h][i][j][k][l] = new Vector();
+								for (int m = 0; m < LAST_BEARING_OFFSET_INDEXS; m++) {
+									fireTimes5[h][i][j][k][l][m] = new Vector();
+								}												
+							}						
+						}
 					}
 				}
 			}
@@ -379,13 +395,14 @@ public class PastFuture extends TeamRobot {
 		setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
 				
 		Integer ft = new Integer(velocities.size() - 1);
+		int rn = robotNameToNum(e.getName());
 			
-		fireTimes5[vIndex1][accelIndex][distanceIndex][wallIndex][lastBearingOffsetIndex].add(ft);
-		fireTimes4[vIndex1][accelIndex][distanceIndex][wallIndex].add(ft);
-		fireTimes3[vIndex1][accelIndex][distanceIndex].add(ft);
-		fireTimes2[vIndex1][accelIndex].add(ft);
-		fireTimes1[vIndex1].add(ft);
-		fireTimes0.add(ft);
+		fireTimes5[rn][vIndex1][accelIndex][distanceIndex][wallIndex][lastBearingOffsetIndex].add(ft);
+		fireTimes4[rn][vIndex1][accelIndex][distanceIndex][wallIndex].add(ft);
+		fireTimes3[rn][vIndex1][accelIndex][distanceIndex].add(ft);
+		fireTimes2[rn][vIndex1][accelIndex].add(ft);
+		fireTimes1[rn][vIndex1].add(ft);
+		fireTimes0[rn].add(ft);
 
 		lastEnemyHeading = e.getHeadingRadians();
 		lastEnemyVelocity = enemyVelocity;
@@ -447,7 +464,6 @@ public class PastFuture extends TeamRobot {
 			//double dist = 200.0;
 			
 			double angle = Math.random() * (Math.PI * 2.0);
-			boolean angleRejected = false;
 			
 			p = new Point2D.Double(limit(_moveFieldRect.getX(), _myLocation.getX() + dist * Math.sin(angle),_moveFieldRect.getX() + _moveFieldRect.getWidth()), 
 				limit(_moveFieldRect.getY(),_myLocation.getY() + dist * Math.cos(angle),_moveFieldRect.getY() + _moveFieldRect.getHeight()));
@@ -491,8 +507,7 @@ public class PastFuture extends TeamRobot {
 		debugX = dest.getX();
 		debugY = dest.getY();
 		// out.println(debugX + "," + debugY);
-		goTo(destination);
-		
+		goTo(destination);		
 	}
 
 	static class Wave extends Condition {
@@ -601,17 +616,18 @@ public class PastFuture extends TeamRobot {
 		final double bulletSpeed = (20.0 - 3.0 * bulletPower);
 		final int MIN_SAMPLES = 10;
 		
-		Vector ft = fireTimes5[vIndex1][vIndex2][distanceIndex][wallIndex][lastBearingOffsetIndex];
+		int rn = robotNameToNum(e.getName());
+		Vector ft = fireTimes5[rn][vIndex1][vIndex2][distanceIndex][wallIndex][lastBearingOffsetIndex];
 		if (ft.size() < MIN_SAMPLES) {
-			ft = fireTimes4[vIndex1][vIndex2][distanceIndex][wallIndex];
+			ft = fireTimes4[rn][vIndex1][vIndex2][distanceIndex][wallIndex];
 			if (ft.size() < MIN_SAMPLES) {
-				ft = fireTimes3[vIndex1][vIndex2][distanceIndex];
+				ft = fireTimes3[rn][vIndex1][vIndex2][distanceIndex];
 				if (ft.size() < MIN_SAMPLES) {
-					ft = fireTimes2[vIndex1][vIndex2];
+					ft = fireTimes2[rn][vIndex1][vIndex2];
 					if (ft.size() < MIN_SAMPLES) {
-						ft = fireTimes1[vIndex1];
+						ft = fireTimes1[rn][vIndex1];
 						if (ft.size() < MIN_SAMPLES)
-							ft = fireTimes0;
+							ft = fireTimes0[rn];
 					}
 				}
 			}
@@ -700,7 +716,7 @@ public class PastFuture extends TeamRobot {
 				//weight /= 1.02; // decay
 				double increment = 1.0;
 				if (realFireTimes.contains(new Integer(i))) 
-					increment *= 2.0 * fireTimes0.size() / realFireTimes.size();
+					increment *= 2.0 * fireTimes0[rn].size() / realFireTimes.size();
 
 				statBin[binIndex] += increment;
 				if (statBin[binIndex] > statBin[maxIndex]) {
