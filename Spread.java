@@ -1,8 +1,10 @@
+// Spread
 // (C) 2010-2019 Kim, Taegyoon
 
 // version 0.1: 20100424 started. K-nearest neighbor play-it-forward, KNN Wavesurfing, Minimum Risk Movement
 // version 0.3: 20110717. goto-surfing
 // version 0.4: per-robot segmentation in gun and movement
+// version 0.5: improve
 
 package stelo;
 
@@ -114,7 +116,7 @@ public class Spread extends TeamRobot {
 		}
 	}
 	private EnemyInfo eInfo; // current EnemyInfo
-	private static HashMap enemyInfos; // for melee
+	private static HashMap<String, EnemyInfo> enemyInfos; // for melee
 			    
     public void run() {
 		g = getGraphics();
@@ -126,7 +128,7 @@ public class Spread extends TeamRobot {
         _enemyWaves = new ArrayList();
 
 		_myLocation = new Point2D.Double(getX(), getY());
-		enemyInfos = new HashMap();
+		enemyInfos = new HashMap<>();
 
         setAdjustGunForRobotTurn(true);
 //        setAdjustRadarForGunTurn(true);
@@ -210,16 +212,16 @@ public class Spread extends TeamRobot {
 					if (surfWave != null)
         				myLastGF = getFactor(surfWave, _myLocation);
 					double[] info = new double[NUM_FACTOR]; // normalize to [0, 1]
-					info[0] = normalize(0.0, Math.abs(this.getVelocity()), 8.0) * 2.0;
+					info[0] = normalize(0.0, Math.abs(this.getVelocity()), 8.0);
 					//info[0] = normalize(0.0, Math.abs(lateralVelocity), 8.0);
-					info[1] = normalize(0.0, Math.abs(lastMyVelocity), 8.0) * 2.0;
+					info[1] = normalize(0.0, Math.abs(lastMyVelocity), 8.0);
 					info[2] = normalize(36.0, _myLocation.distance(tInfo.location), EnemyWave.MAX_DISTANCE); 
 					info[3] = normalize(-1.0, myLastGF, 1.0);
-					info[4] = normalize(18.0, wallDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0)) * 0.5;
+					info[4] = normalize(18.0, wallDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
 					info[5] = normalize(0.0, Math.abs(tInfo.lateralMyVelocity), 8.0);
 					//info[6] = normalize(0.0, e.getName().hashCode(), Integer.MAX_VALUE) * 100.0;					
 					//info[6] = normalize(0.0, timeSinceDir, 30.0);
-					info[6] = normalize(18.0, cornerDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0)) * 0.5;
+					info[6] = normalize(18.0, cornerDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
 					int index = 2;
 					if (getOthers() > 1) index = 0;
 					/*
@@ -378,6 +380,7 @@ public class Spread extends TeamRobot {
         //_enemyLocation = (Point2D.Double) project(_myLocation, absBearing, e.getDistance());
 		
 		double bulletPower = 2.0; // 1.999
+		if (getOthers() >= 7) bulletPower = 3.0; // melee
 		//double bulletPower = 1.95; // 1.999
 		if (getEnergy() < 15.0) bulletPower = 1.0;
 		
@@ -406,16 +409,16 @@ public class Spread extends TeamRobot {
 		enemyLastGF = Wave.lastGF();
 		
 		double[] info = new double[NUM_FACTOR];
-		info[0] = normalize(0.0, Math.abs(enemyVelocity), 8.0) * 2.0;
+		info[0] = normalize(0.0, Math.abs(enemyVelocity), 8.0);
 		//info[0] = normalize(0.0, Math.abs(enemyLateralVelocity), 8.0);
-		info[1] = normalize(0.0, Math.abs(eInfo.lastVelocity), 8.0) * 2.0;
+		info[1] = normalize(0.0, Math.abs(eInfo.lastVelocity), 8.0);
 		info[2] = normalize(36.0, enemyDistance, EnemyWave.MAX_DISTANCE); 
 		info[3] = normalize(-1.0, enemyLastGF, 1.0);
-		info[4] = normalize(18.0, wallDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0)) * 0.5;
+		info[4] = normalize(18.0, wallDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
 		info[5] = normalize(0.0, Math.abs(enemyLateralVelocity), 8.0);
 		//info[6] = normalize(0.0, e.getName().hashCode(), Integer.MAX_VALUE) * 100.0;
 		//info[6] = normalize(0.0, enemyTimeSinceDir, 30.0);
-		info[6] = normalize(18.0, cornerDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0)) * 0.5;
+		info[6] = normalize(18.0, cornerDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
 		
 //		if (e.getEnergy() == 0.0 || (getOthers() > 1 && e.getDistance() > 50))
 		if (e.getEnergy() == 0.0) {
@@ -480,9 +483,6 @@ public class Spread extends TeamRobot {
 		else {
 			doMeleeMove();
 		}
-		
-		//doSurfing();
-		//doMeleeMove();
 	}
 
 	private static Point2D.Double destination;
@@ -582,8 +582,7 @@ public class Spread extends TeamRobot {
 			// wave surfing angle
 			if (Math.abs(Utils.normalRelativeAngle(angle - surfAngle)) < Math.PI / 32.0 ||
 				Math.abs(Utils.normalRelativeAngle(angle - surfAngle + Math.PI)) < Math.PI / 32.0) {
-//				risk /= 1.1;
-				risk /= 10.0;
+				risk /= 1.1;
 			}
 			
 			//if (risk == Double.POSITIVE_INFINITY) continue;
@@ -1308,14 +1307,6 @@ public class Spread extends TeamRobot {
 		return surfWave.buffer[index];
     }
 */
-    public double checkDangerAngle(EnemyWave surfWave, double angle, double maxVelocity) {
-        double factor = getFactor(surfWave,
-            predictPositionAngle(surfWave, angle, maxVelocity));
-
-		int index = factorIndex(surfWave, factor);
-		
-		return surfWave.buffer[index];
-    }
 
     public double checkDangerAngleAll(EnemyWave surfWave, double angle, double maxVelocity) {
 		Point2D.Double position = predictPositionAngle(surfWave, angle, maxVelocity);
@@ -1336,6 +1327,25 @@ public class Spread extends TeamRobot {
 		
 		return danger;
     }
+	
+    public double checkDangerAll(EnemyWave surfWave, Point2D.Double position) {
+		double factor = getFactor(surfWave, position);
+		int index = factorIndex(surfWave, factor);
+		double danger = surfWave.buffer[index];
+		double distanceClosest = (_myLocation.distance(surfWave.fireLocation) - surfWave.distanceTraveled) / surfWave.bulletVelocity;
+		
+        for (int x = 0; x < _enemyWaves.size(); x++) {
+            EnemyWave ew = (EnemyWave)_enemyWaves.get(x);
+			double distance = (_myLocation.distance(ew.fireLocation) - ew.distanceTraveled) / ew.bulletVelocity;	
+			if (ew != surfWave && Math.abs(distance - distanceClosest) < 10) {
+				index = factorIndex(ew, getFactor(ew, position));
+				danger += ew.buffer[index];
+			}
+		}
+		
+		return danger;
+    }
+
 /*
 	private double checkDanger2(EnemyWave surfWave, Point2D.Double destination) {
         int index = getFactorIndex(surfWave,
@@ -1497,7 +1507,14 @@ randomDirection, (int) randomDirection);
 		lastSurfWave = surfWave;
 		lastSurfDir = surfDir;
 //		return goAngle;
-    }	
+    }
+	
+	private Point2D.Double nearestCorner(Point2D.Double p) {
+		double x = 18.0, y = 18.0;
+		if (p.x > getBattleFieldWidth() / 2) x = getBattleFieldWidth() - x;
+		if (p.y > getBattleFieldHeight() / 2) x = getBattleFieldHeight() - y;
+		return new Point2D.Double(x, y);
+	}
 	
     private double doSurfingMelee() {
 //		if (enemyDistance < 250) 
@@ -1544,6 +1561,7 @@ randomDirection, (int) randomDirection);
 				}
 				//setTurnRightRadians(Utils.normalRelativeAngle(FAR_HALF_PI + absoluteBearing(_myLocation, _enemyLocation) - getHeadingRadians()));
 			}
+			goTo(nearestCorner(_myLocation));
 			return 0;
 		}
 	
@@ -1557,43 +1575,52 @@ randomDirection, (int) randomDirection);
 		double v = 8, velocity = 8;
 		double minDanger = Double.POSITIVE_INFINITY;
 		double straightAngle = absoluteBearing(surfWave.fireLocation, surfWave.firstLocation); // straight
-		double angle, goAngle = straightAngle - Math.PI / 2;
+		double angle;
+		double goAngle = straightAngle - Math.PI / 2;
 		double cDanger;
 		EnemyWave surfWave2 = getClosestSurfableWave2(surfWave);
 		
+		Point2D.Double p, bestPosition = nearestCorner(_myLocation);
 		angle = straightAngle - Math.PI / 2;
-		cDanger = checkDangerAngle(surfWave, angle, v);
+		p = predictPositionAngle(surfWave, angle, v);
+		cDanger = checkDanger(surfWave, p);
 		//cDanger = checkDangerAngleAll(surfWave, angle, v);
 		if (cDanger < minDanger) {
 			minDanger = cDanger;
 			goAngle = angle;
 			velocity = v;
+			bestPosition = p;
 		}
 		angle = straightAngle + Math.PI / 2;
-		cDanger = checkDangerAngle(surfWave, angle, v);
+		p = predictPositionAngle(surfWave, angle, v);
+		cDanger = checkDanger(surfWave, p);
 		//cDanger = checkDangerAngleAll(surfWave, angle, v);
 		if (cDanger < minDanger) {
 			minDanger = cDanger;
 			goAngle = angle;
 			velocity = v;
+			bestPosition = p;
 		}
 		final double step = Math.PI / 16;
 		for (angle = straightAngle - Math.PI / 2 + step; angle < straightAngle - Math.PI / 2 + Math.PI * 2; angle += step) {
 			//for (v = 8; v >= 0; v -= 8) {
-				cDanger = checkDangerAngle(surfWave, angle, v);
+				p = predictPositionAngle(surfWave, angle, v);
+				cDanger = checkDanger(surfWave, p);
 				//cDanger = checkDangerAngleAll(surfWave, angle, v);
 				if (cDanger < minDanger) {
 					minDanger = cDanger;
 					goAngle = angle;
 					velocity = v;
+					bestPosition = p;
 				}
 			//}
 		}	
 
 		//System.out.println(velocity);
-		goAngle = wallSmoothing(_myLocation, goAngle); 
-		setBackAsFront(this, goAngle);
-		setMaxVelocity(velocity);
+		//goAngle = wallSmoothing(_myLocation, goAngle); 
+		//setBackAsFront(this, goAngle);
+		//setMaxVelocity(velocity);
+		goTo(bestPosition);
 		lastSurfWave = surfWave;
 		//lastSurfDir = surfDir;
 		return goAngle;
