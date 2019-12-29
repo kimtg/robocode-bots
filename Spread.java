@@ -5,6 +5,7 @@
 // version 0.3: 20110717. goto-surfing
 // version 0.4: per-robot segmentation in gun and movement
 // version 0.5: improve
+// version 0.5.1: fixed codesize issue (static block)
 
 package stelo;
 
@@ -36,8 +37,8 @@ public class Spread extends TeamRobot {
 
     private static double lastMyVelocity;
 
-	private static Vector velocities = new Vector(20000);
-	private static Vector headingChanges = new Vector(20000);
+	private static Vector velocities = new Vector();
+	private static Vector headingChanges = new Vector();
 
 	private static final int ROBOT_INDEXES = 20;
 	private static Vector[] fireTimeLog = new Vector[ROBOT_INDEXES];
@@ -75,11 +76,6 @@ public class Spread extends TeamRobot {
 	private static final int NUM_SAMPLES = 59;
 	private static final int NUM_FACTOR = 7;
 	
-	static {
-		for (int i = 0; i < ROBOT_INDEXES; i++)
-			fireTimeLog[i] = new Vector(20000);
-	}	
-
 	private static HashMap<String, Integer> robotNum = new HashMap<>();
 	private static int robotNameToNum(String name) {
 		Integer num = robotNum.get(name);
@@ -133,6 +129,15 @@ public class Spread extends TeamRobot {
         setAdjustGunForRobotTurn(true);
 //        setAdjustRadarForGunTurn(true);
 		setAdjustRadarForRobotTurn(true);
+		
+		if (getRoundNum() == 0) {
+			for (int i = 0; i < ROBOT_INDEXES; i++) {
+				fireTimeLog[i] = new Vector();
+				EnemyWave.factorLogs[i] = new Vector(10000);
+				EnemyWave.factorLogs[i].add(new FactorLog(new double[NUM_FACTOR], 0.0, 1.0)); // GF 0
+				EnemyWave.factorLogs[i].add(new FactorLog(new double[NUM_FACTOR], 1.0, 1.0)); // GF 1					
+			}
+		}
 
 		field = new java.awt.geom.Rectangle2D.Double(0, 0, getBattleFieldWidth(), getBattleFieldHeight());
 		_fieldRect = new java.awt.geom.Rectangle2D.Double(18, 18, getBattleFieldWidth() + 1 - 18*2, getBattleFieldHeight() + 1 - 18*2);
@@ -1640,14 +1645,6 @@ randomDirection, (int) randomDirection);
 		static Vector factorLogFlat = new Vector(10000); // flat movement
 		double maxEscapeAngle;
 		double[] buffer;
-		
-		static {
-			for (int i = 0; i < ROBOT_INDEXES; i++) {
-				factorLogs[i] = new Vector(10000);
-				EnemyWave.factorLogs[i].add(new FactorLog(new double[8], 0.0, 1.0)); // GF 0
-				EnemyWave.factorLogs[i].add(new FactorLog(new double[8], 1.0, 1.0)); // GF 1				
-			}
-		}
 			
         public EnemyWave(int robotIndex, double enemyBulletPower, double[] _info, Point2D.Double _fireLocation) {
             bulletVelocity = bulletVelocity(enemyBulletPower);
