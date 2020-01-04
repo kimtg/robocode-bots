@@ -1,11 +1,12 @@
 // Spread
-// (C) 2010-2019 Kim, Taegyoon
+// (C) 2010-2020 Kim, Taegyoon
 
 // version 0.1: 20100424 started. K-nearest neighbor play-it-forward, KNN Wavesurfing, Minimum Risk Movement
 // version 0.3: 20110717. goto-surfing
 // version 0.4: per-robot segmentation in gun and movement
 // version 0.5: improve
 // version 0.5.1: fixed codesize issue (static block)
+// version 0.5.2: tweak
 
 package stelo;
 
@@ -178,11 +179,26 @@ public class Spread extends TeamRobot {
 			move(false);
             turnRadarRightRadians(radarDirection * Double.POSITIVE_INFINITY);
         } while (true);
-    }
+	}
+
+	private void limitRobotLocation(Point2D.Double p) {
+		p.x = limit(_fieldRect.x, p.x, _fieldRect.x + _fieldRect.getWidth());
+		p.y = limit(_fieldRect.y, p.y, _fieldRect.y + _fieldRect.getHeight());
+	}
 
 	public void onStatus(StatusEvent e) {
 		_myLocation = new Point2D.Double(getX(), getY());
 		updateWaves();
+
+		// interpolate enemy locations
+		if (enemyInfos != null) {
+			for (Map.Entry<String, EnemyInfo> me: enemyInfos.entrySet()) {
+				EnemyInfo ei = me.getValue();
+				ei.location.x += ei.sre.getVelocity() * Math.sin(ei.sre.getHeadingRadians());
+				ei.location.y += ei.sre.getVelocity() * Math.cos(ei.sre.getHeadingRadians());
+				limitRobotLocation(ei.location);
+			}
+		}		
 	}
 
     public void onScannedRobot(ScannedRobotEvent e) {
@@ -431,7 +447,6 @@ public class Spread extends TeamRobot {
 		} else {
 			lastBearingOffset = bestBearingOffset(e, bulletPower, absBearing, info);
 		}
-		double randomBearingOffset = getOthers() > 1 ? 0.0 : (Math.random() - 0.5) * Math.atan(9.0 / enemyDistance);
 		
 		double extraTurn = Math.atan(18.0 / enemyDistance);
 		//fireWeight *= 1.0001;
@@ -457,7 +472,7 @@ public class Spread extends TeamRobot {
 //			out.println("wait gun");
 	
 		//setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
-		setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset + randomBearingOffset));
+		setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
 		
 		int ft = velocities.size() - 1;		
 		fireTimeLog[rn].add(new FireTimeLog(info, ft, ftWeight));
@@ -540,10 +555,6 @@ public class Spread extends TeamRobot {
 			
 			double risk = 0.0;
 			risk += 300.0 / p.distance(center); // center
-			risk += -1 / p.distance(new Point2D.Double(0, 0)); // corners
-			risk += -1 / p.distance(new Point2D.Double(0, field.getHeight()));
-			risk += -1 / p.distance(new Point2D.Double(field.getWidth(), 0));
-			risk += -1 / p.distance(new Point2D.Double(field.getWidth(), field.getHeight()));
 			// risk += 50.0 / p.distance(project(_myLocation, lastAngle, dist)); // last direction
 			
 			Set infoSet = enemyInfos.entrySet();
@@ -926,8 +937,8 @@ public class Spread extends TeamRobot {
             EnemyWave ew = (EnemyWave) _enemyWaves.get(x);
 
             ew.distanceTraveled = (time - ew.fireTime) * ew.bulletVelocity;
-            if (ew.distanceTraveled > _myLocation.distance(ew.fireLocation) + 50) {
-			//if (ew.distanceTraveled > _myLocation.distance(ew.fireLocation)) {
+            // if (ew.distanceTraveled > _myLocation.distance(ew.fireLocation) + 50) {
+			if (ew.distanceTraveled > _myLocation.distance(ew.fireLocation)) {
 				if (flattening) {
 					logHitFlat(ew, _myLocation, 1.0);
 				}
@@ -1126,7 +1137,7 @@ public class Spread extends TeamRobot {
     public void onHitRobot(HitRobotEvent e) {
 		EnemyInfo tInfo = (EnemyInfo) enemyInfos.get((Object) e.getName());
     	if (tInfo != null) tInfo.lastEnergy -= Rules.ROBOT_HIT_DAMAGE;
-		setBackAsFront(this, e.getBearingRadians() + getHeadingRadians());
+		setBackAsFront(this, e.getBearingRadians() + getHeadingRadians()); // ram
     }	
 
     // CREDIT: mini sized predictor from Apollon, by rozu
@@ -1300,7 +1311,7 @@ public class Spread extends TeamRobot {
 	public double checkDanger(EnemyWave surfWave, Point2D.Double position) {
         double factor = getFactor(surfWave, position);
 		int index = factorIndex(surfWave, factor);
-		double distance = position.distance(surfWave.fireLocation);
+		double distance = position.distance(surfWave.fireLocation) - surfWave.distanceTraveled;
 		return surfWave.buffer[index]/distance;
 	}
 /*
@@ -1497,13 +1508,8 @@ randomDirection, (int) randomDirection);
 			bestPosition = bestPositionRight;
 		}			
 
-		g.setColor(Color.GREEN);			
 		goTo(bestPosition);
-		if (bestPosition == positionsLeft.get(positionsLeft.size() - 1) || bestPosition == positionsRight.get(positionsRight.size() - 1)) { // end point
-			g.setColor(Color.RED);
-			goAngle = absoluteBearing(_myLocation, bestPosition);		
-			setBackAsFront(this, goAngle);			
-		}
+		g.setColor(Color.GREEN);			
 		g.fillOval((int) (bestPosition.getX() - 4), (int) (bestPosition.getY() - 4), 8, 8);
 			
 		// System.out.println(v);
