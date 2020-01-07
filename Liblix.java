@@ -2,6 +2,7 @@
 // (C) 2020 Kim, Taegyoon
 
 // version 0.1: 20200101 started. Dynamic Clustering Play-It-Forward, DC Wave Surfing, Minimum Risk Movement
+// versino 0.2: targets everyone. time since direction change
 
 package stelo;
 
@@ -51,7 +52,6 @@ public class Liblix extends TeamRobot {
 	private static double numFire, numHit;
 	private static double myLastGF;
 	private static double enemyLastGF;
-	private boolean enemyFiredThisRound;
 	private static double enemyVelocity;
 	private static double hitRate, enemyHitRate, enemyHitRateNormal, enemyHitRateFlat;
 	
@@ -59,17 +59,15 @@ public class Liblix extends TeamRobot {
 	private static Rectangle2D.Double field = new java.awt.geom.Rectangle2D.Double(0, 0, 800, 600);
 	private static Point2D.Double center = new Point2D.Double(400, 300);
 	private static String lastTargetName = "";
-	private static long fireTime = 0;
 	private static double fireWeight = 1.0;
-	private long timeSinceDir = 0;
-	private long enemyTimeSinceDir = 0;
 	private double dir = 1.0;
 	private double lastDir = dir;
 	private double enemyDir = 1.0;
 	private double lastEnemyDir = enemyDir;
 	private static Graphics2D g;
 	private double radarDirection = 1;
-	private static final int NUM_SAMPLES = 59;
+	// private static final int NUM_SAMPLES = 59;
+	private static int NUM_SAMPLES = 203;
 	private static final int NUM_FACTOR = 8;
 	
 	private static HashMap<String, Integer> robotNum = new HashMap<>();
@@ -95,8 +93,12 @@ public class Liblix extends TeamRobot {
     	public ArrayList surfDirections;
     	public ArrayList surfAbsBearings;	
 		public double lateralMyVelocity;
+		public double[] info;
+		public double dir;
+		public double lastDir;
+		public long dirChangeTime;
 		public EnemyInfo(ScannedRobotEvent _sre, Point2D.Double _location, Point2D.Double _lastLocation, double _lastVelocity, double _lastEnergy, ArrayList _surfDirections, 
-			ArrayList _surfAbsBearings) {
+			ArrayList _surfAbsBearings, double[] _info) {
 			sre = _sre;
 			location = _location;
 			firstLocation = (Point2D.Double) location.clone();
@@ -105,9 +107,13 @@ public class Liblix extends TeamRobot {
 			lastEnergy = _lastEnergy;
 			surfDirections = _surfDirections;
 			surfAbsBearings = _surfAbsBearings;
+			info = _info;
 		}
+
 	}
 	private EnemyInfo eInfo; // current EnemyInfo
+
+	private long dirChangeTime;
 	private static HashMap<String, EnemyInfo> enemyInfos; // for melee
 			    
     public void run() {
@@ -116,7 +122,6 @@ public class Liblix extends TeamRobot {
 		setBulletColor(Color.CYAN);
 		setScanColor(Color.CYAN);
 		lateralDirection = 1;
-		// NUM_SAMPLES = 59 * (getRoundNum() + 1);
 		
         _enemyWaves = new ArrayList();
 
@@ -130,7 +135,7 @@ public class Liblix extends TeamRobot {
 		if (getRoundNum() == 0) {
 			for (int i = 0; i < ROBOT_INDEXES; i++) {
 				fireTimeLog[i] = new Vector();
-				EnemyWave.factorLogs[i] = new Vector();
+				EnemyWave.factorLogs[i] = new Vector(10000);
 				EnemyWave.factorLogs[i].add(new FactorLog(new double[NUM_FACTOR], 0.0, 1.0)); // GF 0
 				EnemyWave.factorLogs[i].add(new FactorLog(new double[NUM_FACTOR], 1.0, 1.0)); // GF 1					
 			}
@@ -163,6 +168,8 @@ public class Liblix extends TeamRobot {
 		System.out.println("Hit Rate: Me: " + hitRate + "\tEnemy: " + enemyHitRate);
 		System.out.println("Enemy Hit Rate Normal: " + enemyHitRateNormal);
 		System.out.println("Enemy Hit Rate Flat: " + enemyHitRateFlat);
+		
+		if (getOthers() > 0) NUM_SAMPLES = 203 / getOthers();
 
         setAdjustGunForRobotTurn(true);
         setAdjustRadarForGunTurn(true);
@@ -175,8 +182,8 @@ public class Liblix extends TeamRobot {
 			move(false);
             turnRadarRightRadians(radarDirection * Double.POSITIVE_INFINITY);
         } while (true);
-    }
-	
+	}
+
 	private void limitRobotLocation(Point2D.Double p) {
 		p.x = limit(_fieldRect.x, p.x, _fieldRect.x + _fieldRect.getWidth());
 		p.y = limit(_fieldRect.y, p.y, _fieldRect.y + _fieldRect.getHeight());
@@ -185,7 +192,7 @@ public class Liblix extends TeamRobot {
 	public void onStatus(StatusEvent e) {
 		_myLocation = new Point2D.Double(getX(), getY());
 		updateWaves();
-		
+
 		// interpolate enemy locations
 		if (enemyInfos != null) {
 			for (Map.Entry<String, EnemyInfo> me: enemyInfos.entrySet()) {
@@ -200,22 +207,27 @@ public class Liblix extends TeamRobot {
     public void onScannedRobot(ScannedRobotEvent e) {
 		// finding the best target
 		absBearing = e.getBearingRadians() + getHeadingRadians();
-		double myRelHeading = (getHeadingRadians() - absBearing) % Math.PI;
-		double enemyRelHeading = (e.getHeadingRadians() - absBearing) % Math.PI;
 		Point2D.Double enemyLocation = (Point2D.Double) project(_myLocation, absBearing, e.getDistance());
 		int rn = robotNameToNum(e.getName());
+		double[] myInfo = new double[NUM_FACTOR];
+
 		if (!isTeammate(e.getName())) { // update enemy info
 			EnemyInfo tInfo = (EnemyInfo) enemyInfos.get((Object) e.getName());
 			long lastScan = 0;
+			
 			if (tInfo == null) {// new enemy
-				enemyInfos.put(e.getName(), new EnemyInfo(e, enemyLocation, enemyLocation, e.getVelocity(), e.getEnergy(), new ArrayList(), new ArrayList()));
+				enemyInfos.put(e.getName(), new EnemyInfo(e, enemyLocation, enemyLocation, e.getVelocity(), e.getEnergy(), new ArrayList(), new ArrayList(), myInfo));
 				tInfo = (EnemyInfo) enemyInfos.get((Object) e.getName());
 			} else {
 				lastScan = tInfo.sre.getTime();
-				enemyInfos.put(e.getName(), new EnemyInfo(e, enemyLocation, tInfo.location, tInfo.sre.getVelocity(), tInfo.sre.getEnergy(), tInfo.surfDirections, tInfo.surfAbsBearings));
+				if (e.getVelocity() != 0) tInfo.dir = Math.signum(e.getVelocity()); // enemy direction
+				if (tInfo.dir * tInfo.lastDir < 0.0) tInfo.dirChangeTime = getTime();
+				
+				enemyInfos.put(e.getName(), new EnemyInfo(e, enemyLocation, tInfo.location, tInfo.sre.getVelocity(), tInfo.sre.getEnergy(), tInfo.surfDirections, tInfo.surfAbsBearings, myInfo));
 			}
 			tInfo.lateralMyVelocity = getVelocity() * Math.sin(e.getBearingRadians());
-      	  	tInfo.surfDirections.add(0, new Integer((tInfo.lateralMyVelocity >= 0) ? 1 : -1));
+      	  	//tInfo.surfDirections.add(0, new Integer((tInfo.lateralMyVelocity >= 0) ? 1 : -1));
+			tInfo.surfDirections.add(0, new Integer((int) dir));
      	   	tInfo.surfAbsBearings.add(0, new Double(absBearing + Math.PI));
 			
 	        // check energyDrop, adding enemy wave
@@ -224,9 +236,6 @@ public class Liblix extends TeamRobot {
    		    	//if (energyDrop < 3.01 && energyDrop > 0.09 && tInfo.surfDirections.size() > 2) {
 				if (energyDrop < 3.01 && energyDrop > 0.09 && tInfo.surfDirections.size() > 2) {
   	      			tInfo.bulletPower = energyDrop;
-					enemyFiredThisRound = true;
-//              	EnemyWave ew = new EnemyWave();
-
 					EnemyWave surfWave = getClosestSurfableWave();
 					if (surfWave != null)
         				myLastGF = getFactor(surfWave, _myLocation);
@@ -241,19 +250,60 @@ public class Liblix extends TeamRobot {
 					//info[6] = normalize(0.0, e.getName().hashCode(), Integer.MAX_VALUE) * 100.0;					
 					//info[6] = normalize(0.0, timeSinceDir, 30.0);
 					info[6] = normalize(18.0, cornerDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
-					info[7] = normalize(-Math.PI, myRelHeading , Math.PI);
+					info[7] = normalize(0.0, getTime() - tInfo.dirChangeTime, 100.0); // time since direction change
+					
 					int index = 2;
 					if (getOthers() > 1) index = 0;
-
+					/*
+					long startT = getTime() - 1 - lastScan;
+					long getT = getTime();
+					for (long t = startT; t >= 0; t -= 4) {
+   	         			EnemyWave ew = new EnemyWave(tInfo.bulletPower, info, (Point2D.Double) tInfo.lastLocation.clone()); // last tick, because that needs the previous enemy location as the source of the wave
+   	  		       		ew.fireTime = getT - 2 - t;
+						ew.distanceTraveled = bulletVelocity(tInfo.bulletPower);
+						ew.direction = ((Integer) tInfo.surfDirections.get(index)).intValue();
+						ew.directAngle = ((Double) tInfo.surfAbsBearings.get(index)).doubleValue();
+						ew.firstLocation = (Point2D.Double)_myLocation.clone();
+	           			_enemyWaves.add(ew);
+					}*/
 					
-					EnemyWave ew = new EnemyWave(rn, tInfo.bulletPower, info, (Point2D.Double) tInfo.lastLocation.clone()); // last tick, because that needs the previous enemy location as the source of the wave
-					ew.fireTime = lastScan - 1;
-					ew.distanceTraveled = bulletVelocity(tInfo.bulletPower);
-					ew.direction = ((Integer) tInfo.surfDirections.get(index)).intValue();
-					ew.directAngle = ((Double) tInfo.surfAbsBearings.get(index)).doubleValue();
-					ew.firstLocation = (Point2D.Double)_myLocation.clone();
-					_enemyWaves.add(ew);
-
+   	         			EnemyWave ew = new EnemyWave(rn, tInfo.bulletPower, info, (Point2D.Double) tInfo.lastLocation.clone()); // last tick, because that needs the previous enemy location as the source of the wave
+   	  		       		//ew.fireTime = getTime() - 2 - (getTime() - 1 - lastScan);
+						ew.fireTime = lastScan - 1;
+						ew.distanceTraveled = bulletVelocity(tInfo.bulletPower);
+						ew.direction = ((Integer) tInfo.surfDirections.get(index)).intValue();
+						ew.directAngle = ((Double) tInfo.surfAbsBearings.get(index)).doubleValue();
+						ew.firstLocation = (Point2D.Double)_myLocation.clone();
+	           			_enemyWaves.add(ew);
+					
+					// enemy vs enemy
+					/*
+					LinkedList infosSet = new LinkedList(enemyInfos.values());
+					Iterator itr = infosSet.iterator();
+					while (itr.hasNext()) {
+						EnemyInfo tInfo2 = (EnemyInfo) itr.next();
+						if (tInfo.sre.getName().compareTo(tInfo2.sre.getName()) == 0) { // self
+							continue;
+						}
+						info = new double[6]; // normalize to [0, 1]
+						info[0] = normalize(0.0, Math.abs(tInfo2.sre.getVelocity()), 8.0);
+						//info[0] = normalize(0.0, Math.abs(lateralVelocity), 8.0);
+						info[1] = normalize(0.0, Math.abs(tInfo2.lastVelocity), 8.0);
+						info[2] = normalize(36.0, tInfo.location.distance(tInfo2.location), EnemyWave.MAX_DISTANCE); 
+						info[3] = normalize(-1.0, 0, 1.0);
+						info[4] = normalize(18.0, wallDistance(tInfo2.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
+						info[5] = normalize(0.0, Math.abs(tInfo2.sre.getVelocity()), 8.0);
+						//info[6] = normalize(0.0, timeSinceDir, 30.0);
+					
+   	         			ew = new EnemyWave(tInfo.bulletPower, info, (Point2D.Double) tInfo.lastLocation.clone()); // last tick, because that needs the previous enemy location as the source of the wave
+   	         			ew.fireTime = getTime() - 4;
+						ew.distanceTraveled = bulletVelocity(tInfo.bulletPower);
+						ew.direction = ((Integer) tInfo.surfDirections.get(index)).intValue();
+						ew.directAngle = absoluteBearing(tInfo.location, tInfo2.location);
+						ew.firstLocation = (Point2D.Double) tInfo2.location.clone();
+	            		_enemyWaves.add(ew);										
+					}
+					*/
 					enemyFire++;
 					if (flattening)
 						enemyFireFlat++;
@@ -284,17 +334,10 @@ public class Liblix extends TeamRobot {
 //		double lateralVelocity = velocity * Math.sin(e.getBearingRadians());
 		double enemyLateralVelocity = enemyVelocity * Math.sin(e.getBearingRadians());
 		
-		if (enemyVelocity != 0) enemyDir = Math.signum(enemyVelocity); // enemy direction
-		enemyTimeSinceDir++;
-		if (enemyDir * lastEnemyDir < 0.0) enemyTimeSinceDir = 0;
-		
 		if (velocity != 0) dir = Math.signum(velocity); // my direction
-		timeSinceDir++;				
-		if (dir * lastDir < 0.0) timeSinceDir = 0;
 		
 		if (enemyVelocity != 0)
 			enemyDirection = Math.signum(enemyVelocity);
-		double myVelocity = getVelocity();
 				
         // setTurnRadarRightRadians(Utils.normalRelativeAngle(absBearing - getRadarHeadingRadians()) * 2); // * 2
 
@@ -305,11 +348,11 @@ public class Liblix extends TeamRobot {
 			double radarTurn = Utils.normalRelativeAngle(absBearing - getRadarHeadingRadians());
 			setTurnRadarRightRadians(radarTurn + Math.signum(radarTurn) * extraTurn);
 		} else { // melee		
-			if (getGunHeat() < 0.5) { // gun heat lock
-				double extraTurn = Math.PI / 4.0;
-				double radarTurn = Utils.normalRelativeAngle(absBearing - getRadarHeadingRadians());
-				setTurnRadarRightRadians(radarTurn + Math.signum(radarTurn) * extraTurn);
-			} else if (enemyInfos.size() == getOthers()) { // oldest scanned
+			 if (getGunHeat() < 0.5) { // gun heat lock
+			 	double extraTurn = Math.PI / 4.0;
+			 	double radarTurn = Utils.normalRelativeAngle(absBearing - getRadarHeadingRadians());
+			 	setTurnRadarRightRadians(radarTurn + Math.signum(radarTurn) * extraTurn);
+			 } else if (enemyInfos.size() == getOthers()) { // oldest scanned
 				LinkedList infosSet = new LinkedList(enemyInfos.values());
 				Iterator itr = infosSet.iterator();
 				long minTime = Long.MAX_VALUE;
@@ -359,17 +402,24 @@ public class Liblix extends TeamRobot {
         // enemy location as the source of the wave
         //_enemyLocation = (Point2D.Double) project(_myLocation, absBearing, e.getDistance());
 		
-		double bulletPower = 2.0;
-		//double bulletPower = 3.0;
-		//if (getOthers() >= 7) bulletPower = 3.0; // melee
+		double bulletPower = 2.0; // 1.999
+		//if (getOthers() >= 2) bulletPower = 3.0; // melee
 		//double bulletPower = 1.95; // 1.999
-		if (getEnergy() < 20.0) bulletPower = getEnergy() / 10.0;
-		//bulletPower = getEnergy() / 100.0 * 3.0;
+		if (getEnergy() < 30.0) bulletPower = getEnergy() / 15.0;
 		
+		// if (getEnergy() < e.getEnergy()) bulletPower = enemyBulletPower / 2.0;
+		// if (getOthers() > 7) bulletPower += (double) (getOthers() - 7) * (3.0 - bulletPower) / 3.0;
+		// double bulletPower = getOthers() > 7 ? 3.0 : 1.999; // 1.9
+		// double bulletPower = limit(1.9, 1.9 + (3.0 - 1.9) / 10.0 * getOthers(), 3.0);
+		//bulletPower = Math.min(bulletPower, getEnergy() / 5.0);
 		bulletPower = Math.min(bulletPower, getEnergy() - 0.001);
 		if (enemyDistance < 50 || numFire > 0 && hitRate > 0.5 && getEnergy() > 50.0) bulletPower = 3.0;
+//		if (enemyDistance < 50) bulletPower = 3.0;
+//		bulletPower = Math.min(getEnergy() - 0.01, Math.min(bulletPower, e.getEnergy() / 4.0));
 		double ee = e.getEnergy();
-		bulletPower = Math.min(bulletPower, ee > 4.0 ? (ee + 2.0) / 6.0 : ee / 4.0);
+		//double ee2 = Math.max(0, ee - enemyBulletPower);
+		bulletPower = Math.min(bulletPower, ee > 4.0 ? (ee+ 2.0) / 6.0 : ee / 4.0);
+		//bulletPower = Math.min(getEnergy() / 4.0, Math.min(bulletPower, ee > 4.0 ? (ee+ 2.0) / 6.0 : ee / 4.0));
 		bulletPower = limit(0.1, bulletPower, 3.0);
 		
 		Wave wave = new Wave(this, Rules.getBulletSpeed(bulletPower));
@@ -381,24 +431,24 @@ public class Liblix extends TeamRobot {
 		addCustomEvent(wave);
 		enemyLastGF = Wave.lastGF();
 		
-		double[] info = new double[NUM_FACTOR];
-		info[0] = normalize(0.0, Math.abs(enemyVelocity), 8.0);
-		//info[0] = normalize(0.0, Math.abs(enemyLateralVelocity), 8.0);
-		info[1] = normalize(0.0, Math.abs(eInfo.lastVelocity), 8.0);
-		info[2] = normalize(36.0, enemyDistance, EnemyWave.MAX_DISTANCE); 
-		info[3] = normalize(-1.0, enemyLastGF, 1.0);
-		info[4] = normalize(18.0, wallDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
-		info[5] = normalize(0.0, Math.abs(enemyLateralVelocity), 8.0);
-		//info[6] = normalize(0.0, e.getName().hashCode(), Integer.MAX_VALUE) * 100.0;
-		//info[6] = normalize(0.0, enemyTimeSinceDir, 30.0);
-		info[6] = normalize(18.0, cornerDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
-		info[7] = normalize(-Math.PI, enemyRelHeading , Math.PI);
+		if (getVelocity() != 0) dir = Math.signum(getVelocity()); // my direction
+		if (dir * lastDir < 0.0) dirChangeTime = getTime();		
+		
+		myInfo[0] = normalize(0.0, Math.abs(enemyVelocity), 8.0);
+		myInfo[1] = normalize(0.0, Math.abs(eInfo.lastVelocity), 8.0);
+		myInfo[2] = normalize(36.0, enemyDistance, EnemyWave.MAX_DISTANCE); 
+		myInfo[3] = normalize(-1.0, enemyLastGF, 1.0);
+		myInfo[4] = normalize(18.0, wallDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
+		myInfo[5] = normalize(0.0, Math.abs(enemyLateralVelocity), 8.0);
+		myInfo[6] = normalize(18.0, cornerDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
+		myInfo[7] = normalize(0.0, getTime() - dirChangeTime, 100.0); // time since direction change
 		
 //		if (e.getEnergy() == 0.0 || (getOthers() > 1 && e.getDistance() > 50))
 		if (e.getEnergy() == 0.0) {
 			lastBearingOffset = 0.0;
 		} else {
-			lastBearingOffset = bestBearingOffset(e, bulletPower, absBearing, info);
+			// lastBearingOffset = bestBearingOffset(e, bulletPower, absBearing, info);
+			lastBearingOffset = bestBearingOffset(bulletPower, absBearing);
 		}
 		
 		double extraTurn = Math.atan(18.0 / enemyDistance);
@@ -416,7 +466,8 @@ public class Liblix extends TeamRobot {
 				numFire++;
 				// realFireTimes.add(new Integer(velocities.size() - 1));
 				//ftWeight = 22.0;
-				ftWeight *= 28.0;				
+				//ftWeight *= 28.0;
+				ftWeight *= 32.0;
 			}
 //		}
 		}
@@ -427,8 +478,8 @@ public class Liblix extends TeamRobot {
 		//setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
 		setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
 		
-		int ft = velocities.size() - 1;
-		fireTimeLog[rn].add(new FireTimeLog(info, ft, ftWeight));
+		int ft = velocities.size() - 1;		
+		fireTimeLog[rn].add(new FireTimeLog(myInfo, ft, ftWeight));
 
 		lastEnemyHeading = e.getHeadingRadians();
 		//lastEnemyVelocity = enemyVelocity;
@@ -437,26 +488,19 @@ public class Liblix extends TeamRobot {
 		//eInfo.lastLocation = (Point2D.Double) eInfo.location.clone();
 		lastDir = dir;
 		lastEnemyDir = enemyDir;
-		
-		// Don't need to check whether gun turn will complete in single turn because
-    	// we check that gun is finished turning before calling setFire(...).
-    	// This is simpler since the precise angle your gun can move in one tick
-    	// depends on where your robot is turning.
-    	fireTime = getTime() + 1;
     } // onScannedRobot
 
 	public void onRobotDeath(RobotDeathEvent e) {
 		enemyInfos.remove((Object) e.getName());
+		if (getOthers() > 0) NUM_SAMPLES = 203 / getOthers();
 	}
 
 	private void move(boolean forceSurfing) {
 		
 		if (getOthers() <= 1 || forceSurfing)
 			doSurfing();
-			//doSurfingMelee();
 		else {
 			doMeleeMove();
-			//doSurfingMelee();
 		}
 	}
 
@@ -490,15 +534,16 @@ public class Liblix extends TeamRobot {
 		//double dist = Math.random() * 20.0 + 160.0;
 		//double dist = eInfo == null || eInfo.lastLocation == null ? Math.random() * 20.0 + 160.0 : Math.max(eInfo.lastLocation.distance(_myLocation) / 3.0, 160.0);
 		//double dist = 140.0;
-		double surfAngle = doSurfingMelee(180.0);
-		EnemyWave ew = getClosestSurfableWave();
-		//double diveAngle = ew == null ? absBearing : absoluteBearing(_myLocation, ew.fireLocation);
+		//double dist = Math.random() * 120.0 + 60.0;
+		double dist = (1.0 - Math.pow(Math.random(), 2.0)) * 130.0 + 50.0;
+		double surfAngle = doSurfingMelee();
 		for (int i = 0; i < numPoints; i++) {
 			//double dist = Math.random() * 200.0 + 40.0;
 			//double dist = 200.0;
-			double dist = Math.random() * 160.0 + 20.0;
+			//double dist = Math.random() * 160.0 + 20.0;
 			
 			double angle = Math.random() * (Math.PI * 2.0);
+			boolean angleRejected = false;
 			
 			p = new Point2D.Double(limit(_moveFieldRect.getX(), _myLocation.getX() + dist * Math.sin(angle),_moveFieldRect.getX() + _moveFieldRect.getWidth()), 
 				limit(_moveFieldRect.getY(),_myLocation.getY() + dist * Math.cos(angle),_moveFieldRect.getY() + _moveFieldRect.getHeight()));
@@ -506,32 +551,24 @@ public class Liblix extends TeamRobot {
 			
 			if (Math.abs(Utils.normalRelativeAngle(angle - lastAngle)) < Math.PI / 16.0) continue; // last direction
 			if (Math.abs(Utils.normalRelativeAngle(angle - lastAngle + Math.PI)) < Math.PI / 16.0) continue; // last opposite direction			
-			//if (Math.abs(Utils.normalRelativeAngle(angle - diveAngle)) < Math.PI / 6.0) continue; // dive
 			//if (!_moveFieldRect.contains(p)) continue;
 			//if (p.distance(_myLocation) < 100.0) continue;
 			
 			double risk = 0.0;
-			risk += 10.0 / square(p.distance(center)); // center
-/*			
-			risk += -1.0 / square(p.distance(new Point2D.Double(0, 0))); // corners
-			risk += -1.0 / square(p.distance(new Point2D.Double(0, field.getHeight())));
-			risk += -1.0 / square(p.distance(new Point2D.Double(field.getWidth(), 0)));
-			risk += -1.0 / square(p.distance(new Point2D.Double(field.getWidth(), field.getHeight())));
-*/			
-			risk += -1.0 / square(cornerDistance(p));
+			risk += 200.0 / p.distance(center); // center
+			// risk += 50.0 / p.distance(project(_myLocation, lastAngle, dist)); // last direction
 			
 			Set infoSet = enemyInfos.entrySet();
 			Iterator itr = infoSet.iterator();
 			while (itr.hasNext()) {
 				Map.Entry me = (Map.Entry) itr.next();
 				EnemyInfo enemyInfo = (EnemyInfo) me.getValue();
-//				risk += 100.0 / square(p.distance(enemyInfo.location));
-				risk += 1.0 / square(p.distance(enemyInfo.location));
-				risk += 1.0 / square(p.distance(_myLocation)); // move away from the current location
-//				if (lastDestination != null) risk += 10.0 / square(p.distance(lastDestination)); // move away from the last destination
+				//risk += enemyInfo.sre.getEnergy() / p.distance(enemyInfo.location);
+				risk += 20.0 / p.distance(enemyInfo.location);
+				risk += 10.0 / p.distance(_myLocation); // move away from the current location
+				if (lastDestination != null) risk += 1.0 / p.distance(lastDestination); // move away from the last destination
 			}
-
-/*			
+			/*
 			// head-on bullet
 			double bulletTime = p.distance(_myLocation) / 8;
 			for (int x = 0; x < _enemyWaves.size(); x++) {
@@ -539,11 +576,12 @@ public class Liblix extends TeamRobot {
 				double distance = ew.distanceTraveled + bulletTime * ew.bulletVelocity;
 				Point2D.Double projectedBulletLocation = new Point2D.Double(ew.fireLocation.getX() + distance * Math.sin(ew.directAngle),
 					ew.fireLocation.getY() + distance * Math.cos(ew.directAngle));
-
+					
 				if (p.distance(projectedBulletLocation) < 36) {
 					//risk += Double.POSITIVE_INFINITY;
 					risk += 0.1;
 					//risk += 10.0;
+					//break;
 				}
 				double tAngle = absoluteBearing(_myLocation, projectedBulletLocation);
 				if (Math.abs(Utils.normalRelativeAngle(angle - tAngle)) < Math.PI / 32.0 ||
@@ -551,16 +589,17 @@ public class Liblix extends TeamRobot {
 						//risk += Double.POSITIVE_INFINITY;
 						risk += 0.1;
 						//risk += 10.0;
+						//break;
 				}
 				
-				risk += 0.1 / square(p.distance(projectedBulletLocation));
-			}
-*/			
-
+				//risk += 100.0 / p.distance(bulletLocation);
+				
+				// risk += 100.0 / p.distance(bulletLocation);								
+			} */
 			// wave surfing angle
 			if (Math.abs(Utils.normalRelativeAngle(angle - surfAngle)) < Math.PI / 32.0 ||
 				Math.abs(Utils.normalRelativeAngle(angle - surfAngle + Math.PI)) < Math.PI / 32.0) {
-				risk /= 2.0;
+				risk /= 1.1;
 			}
 			
 			//if (risk == Double.POSITIVE_INFINITY) continue;
@@ -706,127 +745,117 @@ public class Liblix extends TeamRobot {
 		return new Rectangle2D.Double(margin, margin, getBattleFieldWidth() - margin * 2.0, getBattleFieldHeight() - margin * 2.0);
 	}
 
-	// statistical movement reconstructor
-	private double bestBearingOffset(ScannedRobotEvent e, double bulletPower, double absBearing, double[] info) {
-		final double angleThreshold = Math.atan(36.0 / e.getDistance()); // 18.0
+	// statistical movement reconstructor. targets everyone
+	private double bestBearingOffset(double bulletPower, double absBearing) {
+		//final double angleThreshold = Math.atan(36.0 / e.getDistance()); // 18.0
+		final double angleThreshold = Math.atan(36.0 / 1000.0); // 18.0
 		// final double angleThreshold = Math.atan(1.0 / e.getDistance()); // pixel accuracy
-		final double maxEscapeAngle = maxEscapeAngle(bulletVelocity(bulletPower));
+		// final double maxEscapeAngle = maxEscapeAngle(bulletVelocity(bulletPower));
+		final double maxEscapeAngle = Math.PI;
 		final int binSize = (int) (maxEscapeAngle * 2.0 / angleThreshold) + 1;
 //		final int CLOSEST_SIZE = binSize * 2 + 1;
 		final double bulletSpeed = (20.0 - 3.0 * bulletPower);
-		
-		int rn = robotNameToNum(e.getName());
-		final int NUM_NEAREST = Math.min(NUM_SAMPLES, fireTimeLog[rn].size());
-		FireTimeLog[] nearestLogs = new FireTimeLog[NUM_NEAREST];
-		double[] diffs = new double[NUM_NEAREST];
-		{ // find k-nearest neighbors
-			int maxIndex = 0;
-			for (int i = 0; i < NUM_NEAREST; i++) {
-				diffs[i] = Double.POSITIVE_INFINITY;
-			}
-		
-			// fill nearestLogs
-			for (int i = fireTimeLog[rn].size() - 1; i >=0; i--) {
-				FireTimeLog fl = (FireTimeLog) fireTimeLog[rn].get(i);
-				final double d = difference(info, fl.info);
-				if (d < diffs[maxIndex]) {
-					diffs[maxIndex] = d;
-					nearestLogs[maxIndex] = fl;
-					for (int j = 0; j < NUM_NEAREST; j++) {
-						if (diffs[j] > diffs[maxIndex]) maxIndex = j;
-					} 	
-				}
-			}
-		}		
-			
 		double[] statBin = new double[binSize];
 		double[] metaAngle = new double[binSize];	
 //		System.out.println("binSize: " + binSize + " choices: " + ft.size());
 
-		int maxIndex = 0;		
+		int maxIndex = 0;
 		final int lastIndex = velocities.size() - 1;
-		
-		final double initialHeading = e.getHeadingRadians();
-		final double eV = e.getVelocity();
-		
-		final double initialEX = enemyDistance * Math.sin(absBearing);
-		final double initialEY = enemyDistance * Math.cos(absBearing);
-		for (int fi = 0; fi < NUM_NEAREST; fi++) {
-			if (nearestLogs[fi] == null) continue;
-			final int i = nearestLogs[fi].fireTime;
-			double sign = 1.0;
-			if (((Double) velocities.get(i)).doubleValue() * enemyDirection < 0)
-				sign = -1.0;
-		
-			// reconstruct enemy movement and find the most popular angle
-			double eX = initialEX;
-			double eY = initialEY;
-			double heading = initialHeading;
-			double v = eV;
-			double db = 0;
-			int index = i;
-			boolean inField = true;
-	
-			do {
-				db += bulletSpeed;
 
-				eX += v * Math.sin(heading);
-				eY += v * Math.cos(heading);		
-				
-				if (!_fieldRect.contains(new Point2D.Double(eX + _myLocation.getX(), eY + _myLocation.getY()))) {
-					inField = false;
-					break;
+		for (Map.Entry<String, EnemyInfo> me: enemyInfos.entrySet()) {
+			int rn = robotNameToNum(me.getKey());
+			//final int NUM_NEAREST = Math.min(NUM_SAMPLES, fireTimeLog[rn].size());
+			final int NUM_NEAREST = Math.min(NUM_SAMPLES, fireTimeLog[rn].size() / 5 + 1);
+			FireTimeLog[] nearestLogs = new FireTimeLog[NUM_NEAREST];
+			double[] diffs = new double[NUM_NEAREST];
+			{ // find k-nearest neighbors
+				int maxDiffIndex = 0;
+				for (int i = 0; i < NUM_NEAREST; i++) {
+					diffs[i] = Double.POSITIVE_INFINITY;
 				}
-				
-				//eX = limit(-_myLocation.getX(), eX, field.getWidth() - _myLocation.getX());
-				//eY = limit(-_myLocation.getY(), eY, field.getHeight() - _myLocation.getY());
-				
-				v = sign * ((Double) velocities.get(index)).doubleValue();
-				heading += sign * ((Double) headingChanges.get(index)).doubleValue();
-				
-				if (index + 1 <= lastIndex) {
-					index++;
-				} else {
-					inField = false;
-					break;
+			
+				// fill nearestLogs
+				for (int i = fireTimeLog[rn].size() - 1; i >=0; i--) {
+					FireTimeLog fl = (FireTimeLog) fireTimeLog[rn].get(i);
+					final double d = difference(me.getValue().info, fl.info);
+					if (d < diffs[maxDiffIndex]) {
+						diffs[maxDiffIndex] = d;
+						nearestLogs[maxDiffIndex] = fl;
+						for (int j = 0; j < NUM_NEAREST; j++) {
+							if (diffs[j] > diffs[maxDiffIndex]) maxDiffIndex = j;
+						} 	
+					}
 				}
-			//} while (db < Math.hypot(eX, eY));
-			} while (db * db < eX * eX + eY * eY); // faster calculation
+			}
+			
+			final double initialHeading = me.getValue().sre.getHeadingRadians();
+			final double eV = me.getValue().sre.getVelocity();
+			
+			// final double initialEX = enemyDistance * Math.sin(absBearing);
+			// final double initialEY = enemyDistance * Math.cos(absBearing);
+			final double initialEX = me.getValue().location.x - _myLocation.x;
+			final double initialEY = me.getValue().location.y - _myLocation.y;
+			for (int fi = 0; fi < NUM_NEAREST; fi++) {
+				if (nearestLogs[fi] == null) continue;
+				final int i = nearestLogs[fi].fireTime;
+				double sign = 1.0;
+				if (((Double) velocities.get(i)).doubleValue() * enemyDirection < 0)
+					sign = -1.0;
+			
+				// reconstruct enemy movement and find the most popular angle
+				double eX = initialEX;
+				double eY = initialEY;
+				double heading = initialHeading;
+				double v = eV;
+				double db = 0;
+				int index = i;
+				boolean inField = true;
 		
-			if (inField) {
-				g.setColor(Color.YELLOW);
-				g.fillOval((int) (_myLocation.getX() + eX - 1), (int) (_myLocation.getY() + eY - 1), 2, 2);
-//				double pX = limit(18, eX + _myLocation.getX(), 768);
-//				double pY = limit(18, eY + _myLocation.getY(), 568);
-//				double angle = Utils.normalRelativeAngle(Math.atan2(pX - _myLocation.getX(), pY - _myLocation.getY()) - absBearing);				
-				double angle = Utils.normalRelativeAngle(Math.atan2(eX, eY) - absBearing);
+				do {
+					db += bulletSpeed;
 
-				int binIndex = (int) limit(0, ((angle + maxEscapeAngle) / angleThreshold), binSize - 1);
-				metaAngle[binIndex] = angle;
-				
-				statBin[binIndex] += nearestLogs[fi].weight / diffs[fi];
-				if (statBin[binIndex] > statBin[maxIndex]) {
-					maxIndex = binIndex;
+					eX += v * Math.sin(heading);
+					eY += v * Math.cos(heading);		
+					
+					if (!_fieldRect.contains(new Point2D.Double(eX + _myLocation.getX(), eY + _myLocation.getY()))) {
+						inField = false;
+						break;
+					}
+					
+					//eX = limit(-_myLocation.getX(), eX, field.getWidth() - _myLocation.getX());
+					//eY = limit(-_myLocation.getY(), eY, field.getHeight() - _myLocation.getY());
+					
+					v = sign * ((Double) velocities.get(index)).doubleValue();
+					heading += sign * ((Double) headingChanges.get(index)).doubleValue();
+					
+					if (index + 1 <= lastIndex) {
+						index++;
+					} else {
+						inField = false;
+						break;
+					}
+				//} while (db < Math.hypot(eX, eY));
+				} while (db * db < eX * eX + eY * eY); // faster calculation
+			
+				if (inField) {
+					g.setColor(Color.YELLOW);
+					g.fillOval((int) (_myLocation.getX() + eX - 1), (int) (_myLocation.getY() + eY - 1), 2, 2);
+					double angle = Utils.normalRelativeAngle(Math.atan2(eX, eY) - absBearing);
+
+					int binIndex = (int) limit(0, ((angle + maxEscapeAngle) / angleThreshold), binSize - 1);
+					metaAngle[binIndex] = angle;
+					
+					// statBin[binIndex] += nearestLogs[fi].weight / diffs[fi];
+					statBin[binIndex] += 1.0 / Math.hypot(eX, eY);
+					//statBin[binIndex] += 1.0;
+					if (statBin[binIndex] > statBin[maxIndex]) {
+						maxIndex = binIndex;
+					}
 				}
-				
-				/*
-	   		    for (int x = 0; x < binSize; x++) { // bin smoothing
-					double increment = nearestLogs[fi].weight / (square(binIndex - x) + 1);
-    		      	statBin[x] += increment;
-				}*/
 			}
 		}
-
-/*
-		final int middleIndex = (binSize - 1) / 2;
-		maxIndex = middleIndex;
-		for (int x = 0; x < binSize; x++) {
-			if (statBin[x] > statBin[maxIndex])
-				maxIndex = x;
-		}
-		return (double) (maxIndex - middleIndex) / binSize * 2.0 * maxEscapeAngle;*/
 		return metaAngle[maxIndex];
-	}
+	}	
 
 	// area targeting
 	private EnemyInfo selectEnemy() {
@@ -847,8 +876,7 @@ public class Liblix extends TeamRobot {
 			maxIndex = (int) limit(0, (angle / angleThreshold), binSize - 1);
 		}		
 					
-		LinkedList infosSet = new LinkedList(enemyInfos.values());
-		Iterator itr = infosSet.iterator();
+		Iterator<EnemyInfo> itr = enemyInfos.values().iterator();
 		while (itr.hasNext()) {
 			EnemyInfo info = (EnemyInfo) itr.next();
 			if (info.sre.getEnergy() == 0.0) return info; // disabled bot
@@ -899,8 +927,8 @@ public class Liblix extends TeamRobot {
             EnemyWave ew = (EnemyWave) _enemyWaves.get(x);
 
             ew.distanceTraveled = (time - ew.fireTime) * ew.bulletVelocity;
-            if (ew.distanceTraveled > _myLocation.distance(ew.fireLocation) + 50) {
-			//if (ew.distanceTraveled > _myLocation.distance(ew.fireLocation)) {
+            // if (ew.distanceTraveled > _myLocation.distance(ew.fireLocation) + 50) {
+			if (ew.distanceTraveled > _myLocation.distance(ew.fireLocation)) {
 				if (flattening) {
 					logHitFlat(ew, _myLocation, 1.0);
 				}
@@ -1099,7 +1127,7 @@ public class Liblix extends TeamRobot {
     public void onHitRobot(HitRobotEvent e) {
 		EnemyInfo tInfo = (EnemyInfo) enemyInfos.get((Object) e.getName());
     	if (tInfo != null) tInfo.lastEnergy -= Rules.ROBOT_HIT_DAMAGE;
-		//setBackAsFront(this, e.getBearingRadians() + getHeadingRadians());
+		setBackAsFront(this, e.getBearingRadians() + getHeadingRadians()); // ram
     }	
 
     // CREDIT: mini sized predictor from Apollon, by rozu
@@ -1273,8 +1301,8 @@ public class Liblix extends TeamRobot {
 	public double checkDanger(EnemyWave surfWave, Point2D.Double position) {
         double factor = getFactor(surfWave, position);
 		int index = factorIndex(surfWave, factor);
-		double distance = position.distance(surfWave.fireLocation);
-		return surfWave.buffer[index] / (distance * distance);
+		double distance = position.distance(surfWave.fireLocation) - surfWave.distanceTraveled;
+		return surfWave.buffer[index]/distance;
 	}
 /*
     public double checkDanger(EnemyWave surfWave, int direction, double maxVelocity) {
@@ -1285,21 +1313,39 @@ public class Liblix extends TeamRobot {
 		return surfWave.buffer[index];
     }
 */
-	
-    public double checkDangerAll(EnemyWave surfWave, Point2D.Double position) {
-		double factor = getFactor(surfWave, position);
+
+    public double checkDangerAngleAll(EnemyWave surfWave, double angle, double maxVelocity) {
+		Point2D.Double position = predictPositionAngle(surfWave, angle, maxVelocity);
+        double factor = getFactor(surfWave, position);
+
 		int index = factorIndex(surfWave, factor);
-		double distance = position.distance(surfWave.fireLocation);
-		double danger = surfWave.buffer[index] / (distance * distance);
+		double danger = surfWave.buffer[index];
 		double distanceClosest = (_myLocation.distance(surfWave.fireLocation) - surfWave.distanceTraveled) / surfWave.bulletVelocity;
 		
         for (int x = 0; x < _enemyWaves.size(); x++) {
             EnemyWave ew = (EnemyWave)_enemyWaves.get(x);
-			distance = (_myLocation.distance(ew.fireLocation) - ew.distanceTraveled) / ew.bulletVelocity;	
-//			if (ew != surfWave && Math.abs(distance - distanceClosest) < 10) {
-			if (ew != surfWave) {
+			double distance = (_myLocation.distance(ew.fireLocation) - ew.distanceTraveled) / ew.bulletVelocity;	
+			if (ew != surfWave && Math.abs(distance - distanceClosest) < 10) {
 				index = factorIndex(ew, getFactor(ew, position));
-				danger += ew.buffer[index] / (distance * distance);
+				danger += ew.buffer[index];
+			}
+		}
+		
+		return danger;
+    }
+	
+    public double checkDangerAll(EnemyWave surfWave, Point2D.Double position) {
+		double factor = getFactor(surfWave, position);
+		int index = factorIndex(surfWave, factor);
+		double danger = surfWave.buffer[index];
+		double distanceClosest = (_myLocation.distance(surfWave.fireLocation) - surfWave.distanceTraveled) / surfWave.bulletVelocity;
+		
+        for (int x = 0; x < _enemyWaves.size(); x++) {
+            EnemyWave ew = (EnemyWave)_enemyWaves.get(x);
+			double distance = (_myLocation.distance(ew.fireLocation) - ew.distanceTraveled) / ew.bulletVelocity;	
+			if (ew != surfWave && Math.abs(distance - distanceClosest) < 10) {
+				index = factorIndex(ew, getFactor(ew, position));
+				danger += ew.buffer[index];
 			}
 		}
 		
@@ -1374,8 +1420,7 @@ randomDirection, (int) randomDirection);
 			setMaxVelocity(8);
 			if (_myLocation != null && eInfo != null && eInfo.location != null) {
 				if (eInfo.sre.getEnergy() <= 0.0) { // ram the disabled enemy
-					//setBackAsFront(this, absoluteBearing(_myLocation, eInfo.location));
-					goTo(eInfo.location);
+					setBackAsFront(this, absoluteBearing(_myLocation, eInfo.location));
 					ramming = true;
 					return;
 //					return 0;
@@ -1453,17 +1498,9 @@ randomDirection, (int) randomDirection);
 			bestPosition = bestPositionRight;
 		}			
 
-		g.setColor(Color.GREEN);			
 		goTo(bestPosition);
-/*		
-		if (bestPosition == positionsLeft.get(positionsLeft.size() - 1) || bestPosition == positionsRight.get(positionsRight.size() - 1)) { // end point
-			g.setColor(Color.RED);
-			goAngle = absoluteBearing(_myLocation, bestPosition);		
-			setBackAsFront(this, goAngle);			
-		}
-*/		
+		g.setColor(Color.GREEN);			
 		g.fillOval((int) (bestPosition.getX() - 4), (int) (bestPosition.getY() - 4), 8, 8);
-		
 			
 		// System.out.println(v);
 //		setBackAsFront(this, goAngle);
@@ -1480,17 +1517,11 @@ randomDirection, (int) randomDirection);
 		return new Point2D.Double(x, y);
 	}
 	
-    private double doSurfingMelee(double dist) {
+    private double doSurfingMelee() {
 //		if (enemyDistance < 250) 
 //			FAR_HALF_PI = 1.25;
 //		else
 //			FAR_HALF_PI = Math.PI / 2.0;
-		if (destination != null && getVelocity() != 0 && !(destination.distance(_myLocation) < Math.abs(getVelocity()))) {
-			goTo(destination);
-			double angle = Math.atan2(destination.getX() - _myLocation.getX(), destination.getY() - _myLocation.getY());
-			return angle;
-		}
-		
         EnemyWave surfWave = getClosestSurfableWave();
 		
 		if (surfWave != null && surfWave != lastSurfWave)
@@ -1525,8 +1556,7 @@ randomDirection, (int) randomDirection);
 			setMaxVelocity(8);
 			if (_myLocation != null && eInfo != null && eInfo.location != null) {
 				if (eInfo.sre.getEnergy() <= 0.0) { // ram the disabled enemy
-					//setBackAsFront(this, absoluteBearing(_myLocation, eInfo.location));
-					goTo(eInfo.location);
+					setBackAsFront(this, absoluteBearing(_myLocation, eInfo.location));
 					ramming = true;
 					return 0;
 				}
@@ -1547,18 +1577,36 @@ randomDirection, (int) randomDirection);
 		double minDanger = Double.POSITIVE_INFINITY;
 		double straightAngle = absoluteBearing(surfWave.fireLocation, surfWave.firstLocation); // straight
 		double angle;
-		double goAngle = straightAngle - Math.PI / 2.0;
+		double goAngle = straightAngle - Math.PI / 2;
 		double cDanger;
+		EnemyWave surfWave2 = getClosestSurfableWave2(surfWave);
 		
 		Point2D.Double p, bestPosition = nearestCorner(_myLocation);
-
-		final double step = Math.PI / 32.0;
-		for (angle = straightAngle - Math.PI / 2; angle < straightAngle - Math.PI / 2 + Math.PI * 2; angle += step) {
+		angle = straightAngle - Math.PI / 2;
+		p = predictPositionAngle(surfWave, angle, v);
+		cDanger = checkDanger(surfWave, p);
+		//cDanger = checkDangerAngleAll(surfWave, angle, v);
+		if (cDanger < minDanger) {
+			minDanger = cDanger;
+			goAngle = angle;
+			velocity = v;
+			bestPosition = p;
+		}
+		angle = straightAngle + Math.PI / 2;
+		p = predictPositionAngle(surfWave, angle, v);
+		cDanger = checkDanger(surfWave, p);
+		//cDanger = checkDangerAngleAll(surfWave, angle, v);
+		if (cDanger < minDanger) {
+			minDanger = cDanger;
+			goAngle = angle;
+			velocity = v;
+			bestPosition = p;
+		}
+		final double step = Math.PI / 16;
+		for (angle = straightAngle - Math.PI / 2 + step; angle < straightAngle - Math.PI / 2 + Math.PI * 2; angle += step) {
 			//for (v = 8; v >= 0; v -= 8) {
-				//p = predictPositionAngle(surfWave, angle, v);
-				p = new Point2D.Double(limit(_moveFieldRect.getX(), _myLocation.getX() + dist * Math.sin(angle),_moveFieldRect.getX() + _moveFieldRect.getWidth()), 
-					limit(_moveFieldRect.getY(),_myLocation.getY() + dist * Math.cos(angle),_moveFieldRect.getY() + _moveFieldRect.getHeight()));				
-				cDanger = checkDangerAll(surfWave, p);
+				p = predictPositionAngle(surfWave, angle, v);
+				cDanger = checkDanger(surfWave, p);
 				//cDanger = checkDangerAngleAll(surfWave, angle, v);
 				if (cDanger < minDanger) {
 					minDanger = cDanger;
@@ -1576,7 +1624,6 @@ randomDirection, (int) randomDirection);
 		goTo(bestPosition);
 		lastSurfWave = surfWave;
 		//lastSurfDir = surfDir;
-		destination = bestPosition;
 		return goAngle;
     }
 
@@ -1608,7 +1655,8 @@ randomDirection, (int) randomDirection);
 		public void updateBuffer() {
 			Vector log = factorLog;
 			if (flattening) log = factorLogFlat;
-			final int NUM_NEAREST = Math.min(NUM_SAMPLES, log.size());
+			//final int NUM_NEAREST = Math.min(NUM_SAMPLES, log.size());
+			final int NUM_NEAREST = Math.min(NUM_SAMPLES, log.size() / 5 + 1);
 			FactorLog[] nearestLogs = new FactorLog[NUM_NEAREST];
 			double[] diffs = new double[NUM_NEAREST];
 			int maxIndex = 0;
@@ -1696,7 +1744,6 @@ randomDirection, (int) randomDirection);
         return Math.asin(8.0/velocity);
     }
 
-/*
     public static void setBackAsFront(AdvancedRobot robot, double goAngle) {
         double angle =
             Utils.normalRelativeAngle(goAngle - robot.getHeadingRadians());
@@ -1716,7 +1763,6 @@ randomDirection, (int) randomDirection);
             robot.setAhead(100);
         }
     }
-*/
 
 /*
     public static void setBackAsFront(AdvancedRobot robot, double angle) {
