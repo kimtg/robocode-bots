@@ -2,12 +2,14 @@
 // (C) 2020 Kim, Taegyoon
 
 // version 0.1: 20200101 started. Dynamic Clustering Play-It-Forward, DC Wave Surfing, Minimum Risk Movement
-// versino 0.2: targets everyone. time since direction change
+// version 0.2: targets everyone. time since direction change
+// version 0.3: targets selected enemy
 
 package stelo;
 
 import robocode.*;
 import robocode.util.Utils;
+import stelo.Spread.FireTimeLog;
 
 import java.awt.geom.*;     // for Point2D's
 import java.util.*;
@@ -66,8 +68,8 @@ public class Liblix extends TeamRobot {
 	private double lastEnemyDir = enemyDir;
 	private static Graphics2D g;
 	private double radarDirection = 1;
-	// private static final int NUM_SAMPLES = 59;
-	private static int NUM_SAMPLES = 203;
+	//private static final int NUM_SAMPLES = 59;
+	private static final int NUM_SAMPLES = 413;
 	private static final int NUM_FACTOR = 8;
 	
 	private static HashMap<String, Integer> robotNum = new HashMap<>();
@@ -169,7 +171,7 @@ public class Liblix extends TeamRobot {
 		System.out.println("Enemy Hit Rate Normal: " + enemyHitRateNormal);
 		System.out.println("Enemy Hit Rate Flat: " + enemyHitRateFlat);
 		
-		if (getOthers() > 0) NUM_SAMPLES = 203 / getOthers();
+		//if (getOthers() > 0) NUM_SAMPLES = 413 / getOthers();
 
         setAdjustGunForRobotTurn(true);
         setAdjustRadarForGunTurn(true);
@@ -447,8 +449,7 @@ public class Liblix extends TeamRobot {
 		if (e.getEnergy() == 0.0) {
 			lastBearingOffset = 0.0;
 		} else {
-			// lastBearingOffset = bestBearingOffset(e, bulletPower, absBearing, info);
-			lastBearingOffset = bestBearingOffset(bulletPower, absBearing);
+			lastBearingOffset = bestBearingOffset(e, bulletPower, absBearing, eInfo.info);			
 		}
 		
 		double extraTurn = Math.atan(18.0 / enemyDistance);
@@ -492,7 +493,7 @@ public class Liblix extends TeamRobot {
 
 	public void onRobotDeath(RobotDeathEvent e) {
 		enemyInfos.remove((Object) e.getName());
-		if (getOthers() > 0) NUM_SAMPLES = 203 / getOthers();
+		//if (getOthers() > 0) NUM_SAMPLES = 203 / getOthers();
 	}
 
 	private void move(boolean forceSurfing) {
@@ -555,7 +556,8 @@ public class Liblix extends TeamRobot {
 			//if (p.distance(_myLocation) < 100.0) continue;
 			
 			double risk = 0.0;
-			risk += 200.0 / p.distance(center); // center
+			//risk += 200.0 / p.distance(center); // center
+			risk += 200.0 / (p.distance(center) + 250.0); // center
 			// risk += 50.0 / p.distance(project(_myLocation, lastAngle, dist)); // last direction
 			
 			Set infoSet = enemyInfos.entrySet();
@@ -745,117 +747,128 @@ public class Liblix extends TeamRobot {
 		return new Rectangle2D.Double(margin, margin, getBattleFieldWidth() - margin * 2.0, getBattleFieldHeight() - margin * 2.0);
 	}
 
-	// statistical movement reconstructor. targets everyone
-	private double bestBearingOffset(double bulletPower, double absBearing) {
-		//final double angleThreshold = Math.atan(36.0 / e.getDistance()); // 18.0
-		final double angleThreshold = Math.atan(36.0 / 1000.0); // 18.0
+	// statistical movement reconstructor
+	private double bestBearingOffset(ScannedRobotEvent e, double bulletPower, double absBearing, double[] info) {
+		final double angleThreshold = Math.atan(36.0 / e.getDistance()); // 18.0
 		// final double angleThreshold = Math.atan(1.0 / e.getDistance()); // pixel accuracy
-		// final double maxEscapeAngle = maxEscapeAngle(bulletVelocity(bulletPower));
-		final double maxEscapeAngle = Math.PI;
+		final double maxEscapeAngle = maxEscapeAngle(bulletVelocity(bulletPower));
 		final int binSize = (int) (maxEscapeAngle * 2.0 / angleThreshold) + 1;
 //		final int CLOSEST_SIZE = binSize * 2 + 1;
 		final double bulletSpeed = (20.0 - 3.0 * bulletPower);
+		
+		int rn = robotNameToNum(e.getName());
+		//final int NUM_NEAREST = Math.min(NUM_SAMPLES, fireTimeLog[rn].size());
+		final int NUM_NEAREST = Math.min(NUM_SAMPLES, fireTimeLog[rn].size() / 5 + 1);
+		FireTimeLog[] nearestLogs = new FireTimeLog[NUM_NEAREST];
+		double[] diffs = new double[NUM_NEAREST];
+		{ // find k-nearest neighbors
+			int maxIndex = 0;
+			for (int i = 0; i < NUM_NEAREST; i++) {
+				diffs[i] = Double.POSITIVE_INFINITY;
+			}
+		
+			// fill nearestLogs
+			for (int i = fireTimeLog[rn].size() - 1; i >=0; i--) {
+				FireTimeLog fl = (FireTimeLog) fireTimeLog[rn].get(i);
+				final double d = difference(info, fl.info);
+				if (d < diffs[maxIndex]) {
+					diffs[maxIndex] = d;
+					nearestLogs[maxIndex] = fl;
+					for (int j = 0; j < NUM_NEAREST; j++) {
+						if (diffs[j] > diffs[maxIndex]) maxIndex = j;
+					} 	
+				}
+			}
+		}		
+			
 		double[] statBin = new double[binSize];
 		double[] metaAngle = new double[binSize];	
 //		System.out.println("binSize: " + binSize + " choices: " + ft.size());
 
-		int maxIndex = 0;
+		int maxIndex = 0;		
 		final int lastIndex = velocities.size() - 1;
-
-		for (Map.Entry<String, EnemyInfo> me: enemyInfos.entrySet()) {
-			int rn = robotNameToNum(me.getKey());
-			//final int NUM_NEAREST = Math.min(NUM_SAMPLES, fireTimeLog[rn].size());
-			final int NUM_NEAREST = Math.min(NUM_SAMPLES, fireTimeLog[rn].size() / 5 + 1);
-			FireTimeLog[] nearestLogs = new FireTimeLog[NUM_NEAREST];
-			double[] diffs = new double[NUM_NEAREST];
-			{ // find k-nearest neighbors
-				int maxDiffIndex = 0;
-				for (int i = 0; i < NUM_NEAREST; i++) {
-					diffs[i] = Double.POSITIVE_INFINITY;
-				}
-			
-				// fill nearestLogs
-				for (int i = fireTimeLog[rn].size() - 1; i >=0; i--) {
-					FireTimeLog fl = (FireTimeLog) fireTimeLog[rn].get(i);
-					final double d = difference(me.getValue().info, fl.info);
-					if (d < diffs[maxDiffIndex]) {
-						diffs[maxDiffIndex] = d;
-						nearestLogs[maxDiffIndex] = fl;
-						for (int j = 0; j < NUM_NEAREST; j++) {
-							if (diffs[j] > diffs[maxDiffIndex]) maxDiffIndex = j;
-						} 	
-					}
-				}
-			}
-			
-			final double initialHeading = me.getValue().sre.getHeadingRadians();
-			final double eV = me.getValue().sre.getVelocity();
-			
-			// final double initialEX = enemyDistance * Math.sin(absBearing);
-			// final double initialEY = enemyDistance * Math.cos(absBearing);
-			final double initialEX = me.getValue().location.x - _myLocation.x;
-			final double initialEY = me.getValue().location.y - _myLocation.y;
-			for (int fi = 0; fi < NUM_NEAREST; fi++) {
-				if (nearestLogs[fi] == null) continue;
-				final int i = nearestLogs[fi].fireTime;
-				double sign = 1.0;
-				if (((Double) velocities.get(i)).doubleValue() * enemyDirection < 0)
-					sign = -1.0;
-			
-				// reconstruct enemy movement and find the most popular angle
-				double eX = initialEX;
-				double eY = initialEY;
-				double heading = initialHeading;
-				double v = eV;
-				double db = 0;
-				int index = i;
-				boolean inField = true;
 		
-				do {
-					db += bulletSpeed;
+		final double initialHeading = e.getHeadingRadians();
+		final double eV = e.getVelocity();
+		
+		final double initialEX = enemyDistance * Math.sin(absBearing);
+		final double initialEY = enemyDistance * Math.cos(absBearing);
+		for (int fi = 0; fi < NUM_NEAREST; fi++) {
+			if (nearestLogs[fi] == null) continue;
+			final int i = nearestLogs[fi].fireTime;
+			double sign = 1.0;
+			if (((Double) velocities.get(i)).doubleValue() * enemyDirection < 0)
+				sign = -1.0;
+		
+			// reconstruct enemy movement and find the most popular angle
+			double eX = initialEX;
+			double eY = initialEY;
+			double heading = initialHeading;
+			double v = eV;
+			double db = 0;
+			int index = i;
+			boolean inField = true;
+	
+			do {
+				db += bulletSpeed;
 
-					eX += v * Math.sin(heading);
-					eY += v * Math.cos(heading);		
-					
-					if (!_fieldRect.contains(new Point2D.Double(eX + _myLocation.getX(), eY + _myLocation.getY()))) {
-						inField = false;
-						break;
-					}
-					
-					//eX = limit(-_myLocation.getX(), eX, field.getWidth() - _myLocation.getX());
-					//eY = limit(-_myLocation.getY(), eY, field.getHeight() - _myLocation.getY());
-					
-					v = sign * ((Double) velocities.get(index)).doubleValue();
-					heading += sign * ((Double) headingChanges.get(index)).doubleValue();
-					
-					if (index + 1 <= lastIndex) {
-						index++;
-					} else {
-						inField = false;
-						break;
-					}
-				//} while (db < Math.hypot(eX, eY));
-				} while (db * db < eX * eX + eY * eY); // faster calculation
-			
-				if (inField) {
-					g.setColor(Color.YELLOW);
-					g.fillOval((int) (_myLocation.getX() + eX - 1), (int) (_myLocation.getY() + eY - 1), 2, 2);
-					double angle = Utils.normalRelativeAngle(Math.atan2(eX, eY) - absBearing);
-
-					int binIndex = (int) limit(0, ((angle + maxEscapeAngle) / angleThreshold), binSize - 1);
-					metaAngle[binIndex] = angle;
-					
-					// statBin[binIndex] += nearestLogs[fi].weight / diffs[fi];
-					statBin[binIndex] += 1.0 / Math.hypot(eX, eY);
-					//statBin[binIndex] += 1.0;
-					if (statBin[binIndex] > statBin[maxIndex]) {
-						maxIndex = binIndex;
-					}
+				eX += v * Math.sin(heading);
+				eY += v * Math.cos(heading);		
+				
+				if (!_fieldRect.contains(new Point2D.Double(eX + _myLocation.getX(), eY + _myLocation.getY()))) {
+					inField = false;
+					break;
 				}
+				
+				//eX = limit(-_myLocation.getX(), eX, field.getWidth() - _myLocation.getX());
+				//eY = limit(-_myLocation.getY(), eY, field.getHeight() - _myLocation.getY());
+				
+				v = sign * ((Double) velocities.get(index)).doubleValue();
+				heading += sign * ((Double) headingChanges.get(index)).doubleValue();
+				
+				if (index + 1 <= lastIndex) {
+					index++;
+				} else {
+					inField = false;
+					break;
+				}
+			//} while (db < Math.hypot(eX, eY));
+			} while (db * db < eX * eX + eY * eY); // faster calculation
+		
+			if (inField) {
+				g.setColor(Color.YELLOW);
+				g.fillOval((int) (_myLocation.getX() + eX - 1), (int) (_myLocation.getY() + eY - 1), 2, 2);
+//				double pX = limit(18, eX + _myLocation.getX(), 768);
+//				double pY = limit(18, eY + _myLocation.getY(), 568);
+//				double angle = Utils.normalRelativeAngle(Math.atan2(pX - _myLocation.getX(), pY - _myLocation.getY()) - absBearing);				
+				double angle = Utils.normalRelativeAngle(Math.atan2(eX, eY) - absBearing);
+
+				int binIndex = (int) limit(0, ((angle + maxEscapeAngle) / angleThreshold), binSize - 1);
+				metaAngle[binIndex] = angle;
+				
+				statBin[binIndex] += nearestLogs[fi].weight / diffs[fi];
+				if (statBin[binIndex] > statBin[maxIndex]) {
+					maxIndex = binIndex;
+				}
+				
+				/*
+	   		    for (int x = 0; x < binSize; x++) { // bin smoothing
+					double increment = nearestLogs[fi].weight / (square(binIndex - x) + 1);
+    		      	statBin[x] += increment;
+				}*/
 			}
 		}
+
+/*
+		final int middleIndex = (binSize - 1) / 2;
+		maxIndex = middleIndex;
+		for (int x = 0; x < binSize; x++) {
+			if (statBin[x] > statBin[maxIndex])
+				maxIndex = x;
+		}
+		return (double) (maxIndex - middleIndex) / binSize * 2.0 * maxEscapeAngle;*/
 		return metaAngle[maxIndex];
-	}	
+	}
 
 	// area targeting
 	private EnemyInfo selectEnemy() {
