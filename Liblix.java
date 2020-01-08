@@ -4,6 +4,7 @@
 // version 0.1: 20200101 started. Dynamic Clustering Play-It-Forward, DC Wave Surfing, Minimum Risk Movement
 // version 0.2: targets everyone. time since direction change
 // version 0.3: targets selected enemy
+// version 0.3.1: bug fix
 
 package stelo;
 
@@ -68,8 +69,7 @@ public class Liblix extends TeamRobot {
 	private double lastEnemyDir = enemyDir;
 	private static Graphics2D g;
 	private double radarDirection = 1;
-	//private static final int NUM_SAMPLES = 59;
-	private static final int NUM_SAMPLES = 413;
+	private static final int NUM_SAMPLES = 59;
 	private static final int NUM_FACTOR = 8;
 	
 	private static HashMap<String, Integer> robotNum = new HashMap<>();
