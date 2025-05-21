@@ -24,6 +24,7 @@
 // version 2.2.1: fixed bullet catcher detection bug
 // version 2.3.0: per-robot segmentation in gun
 // version 2.3.1: per-robot segmentation in movement
+// version 2.3.2: removed Java 11's warnings
 
 package stelo;
 
@@ -57,9 +58,9 @@ public class PastFuture extends TeamRobot {
     public static Point2D.Double _enemyLocation;  // enemy bot's location
 	public static Point2D.Double _lastEnemyLocation;  // enemy bot's location
 
-    public ArrayList _enemyWaves;
-    public ArrayList _surfDirections;
-    public ArrayList _surfAbsBearings;
+    public ArrayList<EnemyWave> _enemyWaves;
+    public ArrayList<Integer> _surfDirections;
+    public ArrayList<Double> _surfAbsBearings;
 	
 	private static double lateralDirection;
 	private static double lastEnemyVelocity;
@@ -80,8 +81,8 @@ public class PastFuture extends TeamRobot {
     private static double enemyBulletPower = 0.1;
     private static double lastMyVelocity;
 
-	private static Vector velocities = new Vector(10000);
-	private static Vector headingChanges = new Vector(10000);
+	private static Vector<Double> velocities = new Vector<>(10000);
+	private static Vector<Double> headingChanges = new Vector<>(10000);
 //	private static Vector sinHeadingChanges = new Vector(10000); // for speeding calculation
 //	private static Vector cosHeadingChanges = new Vector(10000);
 	
@@ -95,7 +96,7 @@ public class PastFuture extends TeamRobot {
 	private static Vector[][][] fireTimes2 = new Vector[ROBOT_INDEXES][SLT_VELOCITY_INDEXES][ACCEL_INDEXES];
 	private static Vector[][] fireTimes1 = new Vector[ROBOT_INDEXES][SLT_VELOCITY_INDEXES];
 	private static Vector[] fireTimes0 = new Vector[ROBOT_INDEXES];
-	private static Vector realFireTimes = new Vector();
+	private static Vector<Integer> realFireTimes = new Vector<>();
 			
 	private static double MAX_ESCAPE_ANGLE = 0.9;
 	private static double lastEnemyHeading = Double.POSITIVE_INFINITY;
@@ -138,7 +139,7 @@ public class PastFuture extends TeamRobot {
 			firstLocation = (Point2D.Double) location.clone();
 		}
 	}	
-	private static HashMap enemyInfos; // for melee
+	private static HashMap<String, EnemyInfo> enemyInfos; // for melee
 	private static Graphics2D g;
 			    
     public void run() {
@@ -148,12 +149,12 @@ public class PastFuture extends TeamRobot {
 		lateralDirection = 1;
 		lastEnemyVelocity = 0;
 		
-        _enemyWaves = new ArrayList();
-        _surfDirections = new ArrayList();
-        _surfAbsBearings = new ArrayList();
+        _enemyWaves = new ArrayList<>();
+        _surfDirections = new ArrayList<>();
+        _surfAbsBearings = new ArrayList<>();
 
 		_myLocation = new Point2D.Double(getX(), getY());
-		enemyInfos = new HashMap();
+		enemyInfos = new HashMap<>();
 
         setAdjustGunForRobotTurn(true);
 //        setAdjustRadarForGunTurn(true);
@@ -277,17 +278,17 @@ public class PastFuture extends TeamRobot {
 			}		 	
 		}
 		{
-			velocities.add(new Double(e.getVelocity()));
+			velocities.add(e.getVelocity());
 			if (lastEnemyHeading == Double.POSITIVE_INFINITY) lastEnemyHeading = e.getHeadingRadians();
 			double hc = Utils.normalRelativeAngle(e.getHeadingRadians() - lastEnemyHeading);
-			headingChanges.add(new Double(hc));
+			headingChanges.add(hc);
 //			sinHeadingChanges.add(new Double(Math.sin(hc)));
 //			cosHeadingChanges.add(new Double(Math.cos(hc)));
 		}
 	
         _surfDirections.add(0,
-            new Integer((lateralVelocity >= 0) ? 1 : -1));
-        _surfAbsBearings.add(0, new Double(absBearing + Math.PI));
+            (lateralVelocity >= 0) ? 1 : -1);
+        _surfAbsBearings.add(0, absBearing + Math.PI);
 		
 		int rn = robotNameToNum(e.getName());
 	
@@ -386,7 +387,7 @@ public class PastFuture extends TeamRobot {
 			Bullet b = setFireBullet(bulletPower);
 			if (b != null) {
 				numFire++;
-				realFireTimes.add(new Integer(velocities.size() - 1));
+				realFireTimes.add(velocities.size() - 1);
 				// out.println("fired: " + getTime());						
 			}
 //		}
@@ -397,7 +398,7 @@ public class PastFuture extends TeamRobot {
 	
 		setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
 				
-		Integer ft = new Integer(velocities.size() - 1);		
+		Integer ft = velocities.size() - 1;		
 			
 		fireTimes5[rn][vIndex1][accelIndex][distanceIndex][wallIndex][lastBearingOffsetIndex].add(ft);
 		fireTimes4[rn][vIndex1][accelIndex][distanceIndex][wallIndex].add(ft);
@@ -484,7 +485,7 @@ public class PastFuture extends TeamRobot {
 			risk += -1 / p.distance(new Point2D.Double(field.getWidth(), field.getHeight()));
 			// risk += 50.0 / p.distance(project(_myLocation, lastAngle, dist)); // last direction
 			
-			Set infoSet = enemyInfos.entrySet();
+			Set<Map.Entry<String, EnemyInfo>> infoSet = enemyInfos.entrySet();
 			Iterator itr = infoSet.iterator();
 			while (itr.hasNext()) {
 				Map.Entry me = (Map.Entry) itr.next();
@@ -717,7 +718,7 @@ public class PastFuture extends TeamRobot {
 				int binIndex = (int) limit(0, ((angle + MAX_ESCAPE_ANGLE) / angleThreshold), binSize - 1);
 				//weight /= 1.02; // decay
 				double increment = 1.0;
-				if (realFireTimes.contains(new Integer(i))) 
+				if (realFireTimes.contains(i)) 
 					increment *= 2.0 * fireTimes0[rn].size() / realFireTimes.size();
 
 				statBin[binIndex] += increment;
