@@ -1,5 +1,5 @@
 // Spread
-// (C) 2010-2020 Kim, Taegyoon
+// (C) 2010-2025 Kim, Taegyoon
 
 // version 0.1: 20100424 started. K-nearest neighbor play-it-forward, KNN Wavesurfing, Minimum Risk Movement
 // version 0.3: 20110717. goto-surfing
@@ -7,6 +7,7 @@
 // version 0.5: improve
 // version 0.5.1: fixed codesize issue (static block)
 // version 0.5.2: tweak
+// version 0.5.3: NUM_NEAREST, bullet power to distance
 
 package stelo;
 
@@ -74,7 +75,6 @@ public class Spread extends TeamRobot {
 	private double lastEnemyDir = enemyDir;
 	private static Graphics2D g;
 	private double radarDirection = 1;
-	private static final int NUM_SAMPLES = 59;
 	private static final int NUM_FACTOR = 7;
 	
 	private static HashMap<String, Integer> robotNum = new HashMap<>();
@@ -164,7 +164,7 @@ public class Spread extends TeamRobot {
 			enemyFireFlat /= decayFactor;
 			enemyHitFlat /= decayFactor;			
 		}
-		System.out.println("Hit Rate: Me: " + hitRate + "\tEnemy: " + enemyHitRate);
+		System.out.println("Hit Rate: Me: " + hitRate + ", Enemy: " + enemyHitRate);
 		System.out.println("Enemy Hit Rate Normal: " + enemyHitRateNormal);
 		System.out.println("Enemy Hit Rate Flat: " + enemyHitRateFlat);
 
@@ -400,23 +400,25 @@ public class Spread extends TeamRobot {
         // enemy location as the source of the wave
         //_enemyLocation = (Point2D.Double) project(_myLocation, absBearing, e.getDistance());
 		
-		double bulletPower = 2.0; // 1.999
-		if (getOthers() >= 7) bulletPower = 3.0; // melee
+// manage bullet power 
+		//double bulletPower = 2.0; // 1.999
+		//if (getOthers() >= 7) bulletPower = 3.0; // melee
 		//double bulletPower = 1.95; // 1.999
-		if (getEnergy() < 15.0) bulletPower = 1.0;
+		//if (getEnergy() < 15.0) bulletPower = 1.0;
 		
 		// if (getEnergy() < e.getEnergy()) bulletPower = enemyBulletPower / 2.0;
 		// if (getOthers() > 7) bulletPower += (double) (getOthers() - 7) * (3.0 - bulletPower) / 3.0;
 		// double bulletPower = getOthers() > 7 ? 3.0 : 1.999; // 1.9
 		// double bulletPower = limit(1.9, 1.9 + (3.0 - 1.9) / 10.0 * getOthers(), 3.0);
 		//bulletPower = Math.min(bulletPower, getEnergy() / 5.0);
+		double bulletPower = 3.0 / (enemyDistance / 250.0);
 		bulletPower = Math.min(bulletPower, getEnergy() - 0.001);
 		if (enemyDistance < 50 || numFire > 0 && hitRate > 0.5 && getEnergy() > 50.0) bulletPower = 3.0;
 //		if (enemyDistance < 50) bulletPower = 3.0;
 //		bulletPower = Math.min(getEnergy() - 0.01, Math.min(bulletPower, e.getEnergy() / 4.0));
 		double ee = e.getEnergy();
 		//double ee2 = Math.max(0, ee - enemyBulletPower);
-		bulletPower = Math.min(bulletPower, ee > 4.0 ? (ee+ 2.0) / 6.0 : ee / 4.0);
+		bulletPower = Math.min(bulletPower, ee > 4.0 ? (ee + 2.0) / 6.0 : ee / 4.0);
 		//bulletPower = Math.min(getEnergy() / 4.0, Math.min(bulletPower, ee > 4.0 ? (ee+ 2.0) / 6.0 : ee / 4.0));
 		bulletPower = limit(0.1, bulletPower, 3.0);
 		
@@ -697,16 +699,17 @@ public class Spread extends TeamRobot {
 		// gun heat
 		//g.drawString("Gun heat: " + getGunHeat(), 10, 10);
 		g.drawString("Velocity: " + getVelocity(), 10, 10);
+		g.drawString("Distance: " + enemyDistance, 10, 25);
 				
 		// melee move
 		if (destination != null) g.drawOval((int) (destination.getX() - 25), (int) (destination.getY() - 25), 50, 50);
 		if (lastDestination != null) g.drawLine((int) lastDestination.getX(), (int) lastDestination.getY(), (int) destination.getX(), (int) destination.getY());
 
 		// my position		
-		g.setColor(Color.red);
-		g.drawOval((int) (getX() - 25), (int) (getY() - 25), 50, 50);
-		g.setColor(new Color(0, 0xFF, 0, 30));
-		g.fillOval((int) (getX() - 35), (int) (getY() - 35), 70, 70);
+		//g.setColor(Color.red);
+		//g.drawOval((int) (getX() - 25), (int) (getY() - 25), 50, 50);
+		//g.setColor(new Color(0, 0xFF, 0, 30));
+		//g.fillOval((int) (getX() - 35), (int) (getY() - 35), 70, 70);
 		
 		// enemies' positions
 		Set infosSet = enemyInfos.entrySet();
@@ -754,7 +757,7 @@ public class Spread extends TeamRobot {
 		final double bulletSpeed = (20.0 - 3.0 * bulletPower);
 		
 		int rn = robotNameToNum(e.getName());
-		final int NUM_NEAREST = Math.min(NUM_SAMPLES, fireTimeLog[rn].size());
+		final int NUM_NEAREST = Math.max(Math.min(50, fireTimeLog[rn].size()), fireTimeLog[rn].size() / 100);
 		FireTimeLog[] nearestLogs = new FireTimeLog[NUM_NEAREST];
 		double[] diffs = new double[NUM_NEAREST];
 		{ // find k-nearest neighbors
@@ -1665,7 +1668,7 @@ randomDirection, (int) randomDirection);
 		public void updateBuffer() {
 			Vector log = factorLog;
 			if (flattening) log = factorLogFlat;
-			final int NUM_NEAREST = Math.min(NUM_SAMPLES, log.size());
+			final int NUM_NEAREST = Math.max(Math.min(50, log.size()), log.size() / 100);
 			FactorLog[] nearestLogs = new FactorLog[NUM_NEAREST];
 			double[] diffs = new double[NUM_NEAREST];
 			int maxIndex = 0;
