@@ -8,6 +8,7 @@
 // version 0.5.1: fixed codesize issue (static block)
 // version 0.5.2: tweak
 // version 0.5.3: NUM_NEAREST, bullet power to distance
+// version 0.6: improved area targeting
 
 package stelo;
 
@@ -875,39 +876,35 @@ public class Spread extends TeamRobot {
 		double angleThreshold = 2.0 * MAX_ESCAPE_ANGLE;
 //		final double MAX_ESCAPE_ANGLE = maxEscapeAngle(bulletVelocity(bulletPower));
 		int binSize = (int) (2.0 * Math.PI / angleThreshold) + 1;
-		//out.println(binSize);
+//		out.println("binSize: " + binSize);
 		
-		double[] statBin = new double[binSize]; // probability of not hitting
-		for (int i=0; i < binSize; i++)
-			statBin[i] = 1.0;
+		double[] statBin = new double[binSize]; // probability of hitting
 		EnemyInfo[] metaEnemy = new EnemyInfo[binSize];
 		EnemyInfo lastEnemy = (EnemyInfo) enemyInfos.get((Object) lastTargetName);
 		int maxIndex = 0;
 		if (lastEnemy != null) {
 			double angle = Utils.normalRelativeAngle(Math.atan2(lastEnemy.location.getX() - _myLocation.getX(), lastEnemy.location.getY() - _myLocation.getY()));
 			maxIndex = (int) limit(0, (angle / angleThreshold), binSize - 1);
-		}		
+		}
 					
 		LinkedList infosSet = new LinkedList(enemyInfos.values());
 		Iterator itr = infosSet.iterator();
 		while (itr.hasNext()) {
 			EnemyInfo info = (EnemyInfo) itr.next();
 			if (info.sre.getEnergy() == 0.0) return info; // disabled bot
-			// if (info.sre.getEnergy() <= 6.0) return info; // to achieve killing bonus
+			//if (info.sre.getEnergy() <= 6.0) return info; // to achieve killing bonus
 			double angle = Utils.normalRelativeAngle(Math.atan2(info.location.getX() - _myLocation.getX(), info.location.getY() - _myLocation.getY()));
 
 			int binIndex = (int) limit(0, (angle / angleThreshold), binSize - 1);
 			double distance = info.location.distance(_myLocation);
 			double robotSizeRadians = 36.0 / Math.max(0.0, distance - 18.0);
 			double escapeAngle = 2.0 * Math.asin(Rules.getBulletSpeed(3.0));
-			double probOfNotHit = 1.0 - Math.min(1.0, robotSizeRadians / escapeAngle);
-			//double probOfNotHit = (1.0 - Math.min(1.0, robotSizeRadians / escapeAngle)) * Math.sqrt(info.sre.getEnergy() / 100.0);
-			//statBin[binIndex] += 1.0 / distance;
-			statBin[binIndex] *= probOfNotHit;
+			double probHit = Math.min(1.0, robotSizeRadians / escapeAngle);
+			statBin[binIndex] += probHit; // prefer area with many bots
 			// if (metaEnemy[binIndex] == null || distance < metaEnemy[binIndex].location.distance(_myLocation))
 			if (metaEnemy[binIndex] == null || square(distance) < distanceSquare(metaEnemy[binIndex].location, _myLocation)) // faster calculation
 				metaEnemy[binIndex] = info;
-			if (statBin[binIndex] < statBin[maxIndex] * 0.8) {
+			if (statBin[binIndex] > statBin[maxIndex]) {
 				maxIndex = binIndex;
 			}			
 		}
