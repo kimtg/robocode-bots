@@ -9,6 +9,7 @@
 // version 0.5.2: tweak
 // version 0.5.3: NUM_NEAREST, bullet power to distance
 // version 0.6: improved area targeting
+// version 0.7: in melee, no weight on fired response
 
 package stelo;
 
@@ -466,7 +467,7 @@ public class Spread extends TeamRobot {
 				numFire++;
 				// realFireTimes.add(new Integer(velocities.size() - 1));
 				//ftWeight = 22.0;
-				ftWeight *= 28.0;				
+				if (getOthers() <= 1) ftWeight *= 28.0; // weight on response on fire
 			}
 //		}
 		}
