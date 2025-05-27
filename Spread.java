@@ -10,11 +10,13 @@
 // version 0.5.3: NUM_NEAREST, bullet power to distance
 // version 0.6: improved area targeting
 // version 0.7: in melee, no weight on fired response
+// version 0.8: reduced dimension, low weight on wall distance
 
 package stelo;
 
 import robocode.*;
 import robocode.util.Utils;
+import stelo.Spread.EnemyWave;
 
 import java.awt.geom.*;     // for Point2D's
 import java.util.*;
@@ -23,7 +25,7 @@ import java.awt.*;
 public class Spread extends TeamRobot {
     public static Point2D.Double _myLocation;     // our bot's location
 
-    public ArrayList _enemyWaves;
+    public ArrayList<EnemyWave> _enemyWaves;
 	
 	private static double lateralDirection;
 
@@ -77,7 +79,7 @@ public class Spread extends TeamRobot {
 	private double lastEnemyDir = enemyDir;
 	private static Graphics2D g;
 	private double radarDirection = 1;
-	private static final int NUM_FACTOR = 7;
+	private static final int NUM_FACTOR = 6;
 	
 	private static HashMap<String, Integer> robotNum = new HashMap<>();
 	private static int robotNameToNum(String name) {
@@ -99,11 +101,11 @@ public class Spread extends TeamRobot {
 		public double lastVelocity;
   	  	public double lastEnergy;
   	  	public double bulletPower = 0.1;
-    	public ArrayList surfDirections;
-    	public ArrayList surfAbsBearings;	
+    	public ArrayList<Integer> surfDirections;
+    	public ArrayList<Double> surfAbsBearings;	
 		public double lateralMyVelocity;
-		public EnemyInfo(ScannedRobotEvent _sre, Point2D.Double _location, Point2D.Double _lastLocation, double _lastVelocity, double _lastEnergy, ArrayList _surfDirections, 
-			ArrayList _surfAbsBearings) {
+		public EnemyInfo(ScannedRobotEvent _sre, Point2D.Double _location, Point2D.Double _lastLocation, double _lastVelocity, double _lastEnergy, ArrayList<Integer> _surfDirections, 
+			ArrayList<Double> _surfAbsBearings) {
 			sre = _sre;
 			location = _location;
 			firstLocation = (Point2D.Double) location.clone();
@@ -124,7 +126,7 @@ public class Spread extends TeamRobot {
 		setScanColor(Color.CYAN);
 		lateralDirection = 1;
 		
-        _enemyWaves = new ArrayList();
+        _enemyWaves = new ArrayList<EnemyWave>();
 
 		_myLocation = new Point2D.Double(getX(), getY());
 		enemyInfos = new HashMap<>();
@@ -225,7 +227,6 @@ public class Spread extends TeamRobot {
 	        // check energyDrop, adding enemy wave
 			{
 	    	    double energyDrop = tInfo.lastEnergy - tInfo.sre.getEnergy();
-   		    	//if (energyDrop < 3.01 && energyDrop > 0.09 && tInfo.surfDirections.size() > 2) {
 				if (energyDrop < 3.01 && energyDrop > 0.09 && tInfo.surfDirections.size() > 2) {
   	      			tInfo.bulletPower = energyDrop;
 					enemyFiredThisRound = true;
@@ -240,11 +241,11 @@ public class Spread extends TeamRobot {
 					info[1] = normalize(0.0, Math.abs(lastMyVelocity), 8.0);
 					info[2] = normalize(36.0, _myLocation.distance(tInfo.location), EnemyWave.MAX_DISTANCE); 
 					info[3] = normalize(-1.0, myLastGF, 1.0);
-					info[4] = normalize(18.0, wallDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
+					info[4] = normalize(18.0, wallDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0)) * 0.5;
 					info[5] = normalize(0.0, Math.abs(tInfo.lateralMyVelocity), 8.0);
 					//info[6] = normalize(0.0, e.getName().hashCode(), Integer.MAX_VALUE) * 100.0;					
 					//info[6] = normalize(0.0, timeSinceDir, 30.0);
-					info[6] = normalize(18.0, cornerDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
+					//info[6] = normalize(18.0, cornerDistance(_myLocation), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
 					int index = 2;
 					if (getOthers() > 1) index = 0;
 					/*
@@ -439,11 +440,11 @@ public class Spread extends TeamRobot {
 		info[1] = normalize(0.0, Math.abs(eInfo.lastVelocity), 8.0);
 		info[2] = normalize(36.0, enemyDistance, EnemyWave.MAX_DISTANCE); 
 		info[3] = normalize(-1.0, enemyLastGF, 1.0);
-		info[4] = normalize(18.0, wallDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
+		info[4] = normalize(18.0, wallDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0)) * 0.5;
 		info[5] = normalize(0.0, Math.abs(enemyLateralVelocity), 8.0);
 		//info[6] = normalize(0.0, e.getName().hashCode(), Integer.MAX_VALUE) * 100.0;
 		//info[6] = normalize(0.0, enemyTimeSinceDir, 30.0);
-		info[6] = normalize(18.0, cornerDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
+		//info[6] = normalize(18.0, cornerDistance(eInfo.location), Math.max(field.getWidth() / 2.0, field.getHeight() / 2.0));
 		
 //		if (e.getEnergy() == 0.0 || (getOthers() > 1 && e.getDistance() > 50))
 		if (e.getEnergy() == 0.0) {
@@ -467,7 +468,8 @@ public class Spread extends TeamRobot {
 				numFire++;
 				// realFireTimes.add(new Integer(velocities.size() - 1));
 				//ftWeight = 22.0;
-				if (getOthers() <= 1) ftWeight *= 28.0; // weight on response on fire
+				//ftWeight *= 28.0; // weight on response on fire
+				ftWeight *= 2.0; // weight on response on fire
 			}
 //		}
 		}
@@ -1870,7 +1872,8 @@ randomDirection, (int) randomDirection);
 		double r = 0.0;
 		for (int i = 0; i < SIZE; i++) {
 			double d = x1[i] - x2[i];
-			r += d * d;
+//			r += d * d;
+			r += Math.sqrt(d * d);
 		}
 		return r;
 	}
