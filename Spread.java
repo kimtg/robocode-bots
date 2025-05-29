@@ -11,6 +11,7 @@
 // version 0.6: improved area targeting
 // version 0.7: in melee, no weight on fired response
 // version 0.8: reduced dimension, low weight on wall distance
+// version 0.9: no weight on fired response
 
 package stelo;
 
@@ -469,7 +470,10 @@ public class Spread extends TeamRobot {
 				// realFireTimes.add(new Integer(velocities.size() - 1));
 				//ftWeight = 22.0;
 				//ftWeight *= 28.0; // weight on response on fire
-				ftWeight *= 2.0; // weight on response on fire
+//				ftWeight *= 100.0; // weight on response on fire
+				
+				int ft = velocities.size() - 1;		
+				fireTimeLog[rn].add(new FireTimeLog(info, ft, ftWeight));
 			}
 //		}
 		}
@@ -480,8 +484,6 @@ public class Spread extends TeamRobot {
 		//setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
 		setTurnGunRightRadians(Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + lastBearingOffset));
 		
-		int ft = velocities.size() - 1;		
-		fireTimeLog[rn].add(new FireTimeLog(info, ft, ftWeight));
 
 		lastEnemyHeading = e.getHeadingRadians();
 		//lastEnemyVelocity = enemyVelocity;
